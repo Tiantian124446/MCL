@@ -1,0 +1,14 @@
+# build.ps1 — 构建 MCL 启动器
+$ErrorActionPreference = 'Stop'
+$root = Split-Path -Parent $MyInvocation.MyCommand.Path
+Push-Location $root
+try {
+    g++ -std=c++17 -O2 -municode -mwindows `
+        -finput-charset=UTF-8 -fexec-charset=UTF-8 -fwide-exec-charset=UTF-16LE `
+        -o "build\MCLauncher.exe" `
+        "src\main.cpp" "src\ui.cpp" "src\core.cpp" "src\http.cpp" "src\util.cpp" `
+        -lgdiplus -lwinhttp -lcrypt32 -lole32 -loleaut32 -luuid -lshlwapi -ldwmapi -lcomctl32 -lws2_32 -static
+    if ($LASTEXITCODE -ne 0) { throw "build failed: $LASTEXITCODE" }
+    Copy-Item "build\MCLauncher.exe" "MCLauncher.exe" -Force
+    Write-Host "build ok: build\MCLauncher.exe"
+} finally { Pop-Location }
