@@ -91,8 +91,29 @@ switch ($Action.ToLowerInvariant()) {
     $wc = New-Object System.Net.WebClient
     $wc.Headers.Add('Authorization', "token $token")
     $wc.Headers.Add('User-Agent', 'DSH-MCL')
-    $wc.UploadFile($u, 'POST', $Asset) | Out-Null
+    $bytes = [IO.File]::ReadAllBytes($Asset)
+    $wc.Headers['Content-Type'] = 'application/octet-stream'
+    $wc.UploadData($u, 'POST', $bytes) | Out-Null
     "asset uploaded: $assetName"
+  }
+  'syncasset' {
+    $r = Invoke-GH 'GET' "$api/repos/$User/$Name/releases/tags/$Tag"
+    $assetName = 'MCLauncher_v' + $Tag.TrimStart('v') + '.exe'
+    foreach ($a in @($r.assets)) {
+      if ($a.name -eq $assetName) {
+        Invoke-GH 'DELETE' "$api/repos/$User/$Name/releases/assets/$($a.id)" | Out-Null
+        Write-Host "deleted old asset $($a.name)"
+      }
+    }
+    $uploadUrl = ([string]$r.upload_url) -replace '\{.*$', ''
+    $u = $uploadUrl + '?name=' + $assetName
+    $wc = New-Object System.Net.WebClient
+    $wc.Headers.Add('Authorization', "token $token")
+    $wc.Headers.Add('User-Agent', 'DSH-MCL')
+    $bytes = [IO.File]::ReadAllBytes($Asset)
+    $wc.Headers['Content-Type'] = 'application/octet-stream'
+    $wc.UploadData($u, 'POST', $bytes) | Out-Null
+    "asset synced: $assetName"
   }
   'release' {
     $release = $null
