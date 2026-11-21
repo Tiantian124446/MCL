@@ -39,7 +39,7 @@ static const float SCALE_MIN = 0.60f;
 static const float SCALE_MAX = 4.00f;
 
 // 应用版本与发布服务器（Win10 服务器站点）
-static const wchar_t* kAppVersion = L"1.2.0";
+static const wchar_t* kAppVersion = L"1.3.0";
 static const wchar_t* kServerBase = L"http://192.168.3.173:7891";
 
 static inline Color C(int r, int g, int b, int a = 255) {
@@ -113,7 +113,8 @@ enum {
     BTN_SRV_VIS_BASE       = 750000,   // +列表下标: 切换"显示服务器 / 不显示服务器"
     BTN_VERCAT_BASE        = 800000,
     BTN_RES_OPEN_BASE      = 900000,   // +0..7: 资源管理卡片
-    BTN_OPEN_GAMEDIR,   // +0..4: 版本分类 全部/正式版/快照/远古版/愚人节版
+    BTN_OPEN_GAMEDIR,
+    BTN_ANALYZE_CRASH,   // +0..4: 版本分类 全部/正式版/快照/远古版/愚人节版
     BTN_LIST_BASE = 2000
 };
 
@@ -613,6 +614,7 @@ private:
     void deleteServer(int idx);
     void connectServer(int idx);         // 一键启动并直连该服务器
     void openResourceFolder(int idx);    // 打开资源包/光影/存档等目录
+    void analyzeCrash();                 // 读取最新崩溃报告并给出建议
     void toggleServerVisible(int idx);   // 切换"显示服务器 / 不显示服务器"
     void writePublicServers();           // 把"显示"的条目同步到公开清单
     void importPublicServers();          // 从公开清单导入本机没有的服务器
@@ -648,6 +650,7 @@ LRESULT CALLBACK MainWindow::wndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return 0;
     }
     case WM_KEYDOWN:
+        if (w == VK_F9) { self.analyzeCrash(); return 0; }
         // F11 / Alt+Enter 切换全屏, 其余按键交回系统处理
         if (w == VK_F11 ||
             (w == VK_RETURN && (GetKeyState(VK_MENU) & 0x8000))) {
@@ -1582,6 +1585,109 @@ void MainWindow::drawAbout(Graphics& g, int W, int H) {
     drawButton(g, b2, L"提交 BUG 反馈", BTN_OPEN_FEEDBACK, false, true, 13);
 }
 
+static bool newestFileInDir(const std::wstring& dir, const std::wstring& filter, std::wstring& out) {
+    WIN32_FIND_DATAW fd;
+    std::wstring pattern = dir + L"\\" + filter;
+    HANDLE h = FindFirstFileW(pattern.c_str(), &fd);
+    if (h == INVALID_HANDLE_VALUE) return false;
+    bool found = false;
+    FILETIME best{};
+    do {
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+        if (!found || CompareFileTime(&fd.ftLastWriteTime, &best) > 0) {
+            best = fd.ftLastWriteTime;
+            out = dir + L"\\" + fd.cFileName;
+            found = true;
+        }
+    } while (FindNextFileW(h, &fd));
+    FindClose(h);
+    return found;
+}
+
+void MainWindow::analyzeCrash() {
+    std::wstring crashDir = joinPath(gameDir_, L"crash-reports");
+    std::wstring logsDir  = joinPath(gameDir_, L"logs");
+    std::wstring file;
+    bool fromCrash = newestFileInDir(crashDir, L"crash-*.txt", file);
+    if (!fromCrash) fromCrash = newestFileInDir(crashDir, L"*.txt", file);
+    if (!fromCrash) newestFileInDir(logsDir, L"latest.log", file);
+    if (file.empty()) {
+        MessageBoxW(hwnd_, L"没有找到崩溃报告（crash-reports）或 latest.log。\n\n先启动一次游戏，崩溃后再回来分析。",
+                    L"MCL 崩溃分析", MB_ICONINFORMATION);
+        return;
+    }
+
+    FILE* fp = _wfopen(file.c_str(), L"rb");
+    if (!fp) {
+        MessageBoxW(hwnd_, L"无法读取崩溃报告文件。", L"MCL 崩溃分析", MB_ICONWARNING);
+        return;
+    }
+    fseek(fp, 0, SEEK_END);
+    long sz = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    if (sz > 1024 * 1024) sz = 1024 * 1024;
+    std::vector<char> buf((size_t)(sz > 0 ? sz : 0));
+    size_t got = buf.empty() ? 0 : fread(buf.data(), 1, buf.size(), fp);
+    fclose(fp);
+    if (got == 0) {
+        MessageBoxW(hwnd_, L"崩溃报告是空的。", L"MCL 崩溃分析", MB_ICONWARNING);
+        return;
+    }
+
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, buf.data(), (int)got, nullptr, 0);
+    UINT cp = CP_UTF8;
+    if (wlen <= 0) { cp = CP_ACP; wlen = MultiByteToWideChar(CP_ACP, 0, buf.data(), (int)got, nullptr, 0); }
+    std::wstring text(wlen > 0 ? wlen : 0, L'\0');
+    if (wlen > 0) MultiByteToWideChar(cp, 0, buf.data(), (int)got, &text[0], wlen);
+
+    std::wstring low = text;
+    for (auto& c : low) c = (wchar_t)towlower(c);
+
+    std::wstring report;
+    report += L"分析文件：\n" + file + L"\n\n";
+    report += L"检测到的问题：\n";
+    int hits = 0;
+    auto has = [&](const wchar_t* p) { return low.find(p) != std::wstring::npos; };
+    if (has(L"outofmemoryerror") || has(L"java heap space") || has(L"out of memory")) {
+        report += L"· 内存不足（OutOfMemoryError）\n  建议：在首页把「最大内存」调高到 4096–8192 MB，并关闭占用内存的程序。\n";
+        hits++;
+    }
+    if (has(L"unsupportedclassversionerror") || has(L"class file version") || has(L"unsupported major.minor")) {
+        report += L"· Java 版本不匹配（UnsupportedClassVersionError）\n  建议：在「游戏设置」里换用与 MC 版本匹配的 Java（1.16 及以下用 Java 8，1.17+ 用 Java 17/21）。\n";
+        hits++;
+    }
+    if (has(L"missing or unsupported mandatory dependencies") || has(L"requires") && has(L"mod file")) {
+        report += L"· 模组缺少依赖或版本不匹配\n  建议：检查 mods 文件夹，补齐前置模组；或临时移出最近加入的模组再试。\n";
+        hits++;
+    }
+    if (has(L"duplicate mods") || has(L"duplicate mod")) {
+        report += L"· 模组重复\n  建议：删除 mods 中重复的 jar（常见于同时放了 Forge 与 Fabric 版本）。\n";
+        hits++;
+    }
+    if (has(L"noclassdeffounderror") || has(L"nosuchmethoderror") || has(L"incompatible")) {
+        report += L"· 模组/加载器版本不兼容（NoSuchMethod / NoClassDefFound）\n  建议：确认所有模组支持当前 MC 版本与加载器版本，优先移除最近新增的模组。\n";
+        hits++;
+    }
+    if (has(L"glfw error") || has(L"opengl") || has(L"pixel format") || has(L"wglcreatecontext")) {
+        report += L"· 显卡/OpenGL 初始化失败\n  建议：更新显卡驱动；关闭光影；在启动器里尝试关闭 3D 加速或降低渲染距离。\n";
+        hits++;
+    }
+    if (has(L"the game crashed whilst") || has(L"exception in thread \"main\"")) {
+        report += L"· 游戏主线程崩溃\n  建议：把本文件通过官网 BUG反馈 提交，附上完整崩溃报告以便定位。\n";
+        hits++;
+    }
+    if (hits == 0) {
+        report += L"· 未识别到常见错误特征\n  建议：把崩溃报告通过官网 BUG反馈 提交，或在「日志」文件夹查看 latest.log。\n";
+    }
+    report += L"\n是否打开官网提交 BUG 反馈？";
+
+    pushLog(L"崩溃分析完成: " + fileNameOf(file));
+    int r = MessageBoxW(hwnd_, report.c_str(), L"MCL 崩溃分析", MB_YESNO | MB_ICONINFORMATION);
+    if (r == IDYES) {
+        std::wstring u = std::wstring(kServerBase) + L"/?feedback=1";
+        ShellExecuteW(nullptr, L"open", u.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    }
+}
 // ------------------------------ 资源管理页 ---------------------------------
 struct ResEntry {
     const wchar_t* dir;
@@ -1673,6 +1779,10 @@ void MainWindow::drawResources(Graphics& g, int W, int H) {
 
         RECT rb = mkRect(c.left + 16, c.top + 68, c.left + 126, c.top + 98);
         drawButton(g, rb, L"打开文件夹", BTN_RES_OPEN_BASE + i, false, true, 12);
+        if (wcscmp(kResEntries[i].dir, L"crash-reports") == 0) {
+            RECT ra = mkRect(c.left + 136, c.top + 68, c.left + 246, c.top + 98);
+            drawButton(g, ra, L"分析最新崩溃", BTN_ANALYZE_CRASH, true, true, 12);
+        }
     }
 
     RECT hint = mkRect(cx, H - 36, cx + cw, H - 16);
@@ -1813,6 +1923,10 @@ void MainWindow::onCommand(int id) {
     }
     if (id >= BTN_RES_OPEN_BASE && id < BTN_RES_OPEN_BASE + 8) {
         openResourceFolder(id - BTN_RES_OPEN_BASE);
+        return;
+    }
+    if (id == BTN_ANALYZE_CRASH) {
+        analyzeCrash();
         return;
     }
     if (id == BTN_OPEN_GAMEDIR) {
