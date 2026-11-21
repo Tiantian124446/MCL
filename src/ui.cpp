@@ -39,7 +39,7 @@ static const float SCALE_MIN = 0.60f;
 static const float SCALE_MAX = 4.00f;
 
 // 应用版本与发布服务器（Win10 服务器站点）
-static const wchar_t* kAppVersion = L"1.1.0";
+static const wchar_t* kAppVersion = L"1.1.1";
 static const wchar_t* kServerBase = L"http://192.168.3.173:7891";
 
 static inline Color C(int r, int g, int b, int a = 255) {
@@ -84,6 +84,7 @@ enum {
     BTN_FULLSCREEN,
     BTN_CHECK_UPDATE,
     BTN_OPEN_SITE,
+    BTN_OPEN_FEEDBACK,
     // ---- 模组下载页
     BTN_NAV_MODS,
     BTN_MODS_SEARCH,
@@ -1570,7 +1571,7 @@ void MainWindow::drawAbout(Graphics& g, int W, int H) {
     RECT b1 = mkRect(c.left + 24, c.top + 350, c.left + 144, c.top + 390);
     drawButton(g, b1, L"访问官网", BTN_OPEN_SITE, true, true, 13);
     RECT b2 = mkRect(c.left + 154, c.top + 350, c.left + 294, c.top + 390);
-    drawButton(g, b2, L"提交 BUG 反馈", BTN_OPEN_SITE, false, true, 13);
+    drawButton(g, b2, L"提交 BUG 反馈", BTN_OPEN_FEEDBACK, false, true, 13);
 }
 
 // ------------------------------ 鼠标 ---------------------------------------
@@ -1813,6 +1814,12 @@ void MainWindow::onCommand(int id) {
     case BTN_OPEN_SITE:
         ShellExecuteW(nullptr, L"open", kServerBase, nullptr, nullptr, SW_SHOWNORMAL);
         break;
+
+    case BTN_OPEN_FEEDBACK: {
+        std::wstring feedbackUrl = std::wstring(kServerBase) + L"/?feedback=1";
+        ShellExecuteW(nullptr, L"open", feedbackUrl.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        break;
+    }
 
     case BTN_REFRESH:
         manifestLoaded_ = false;
