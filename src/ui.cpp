@@ -43,7 +43,7 @@ static const float SCALE_MIN = 0.60f;
 static const float SCALE_MAX = 4.00f;
 
 // 应用版本与发布服务器（Win10 服务器站点）
-static const wchar_t* kAppVersion = L"1.23.2";
+static const wchar_t* kAppVersion = L"1.24.0";
 static const wchar_t* kServerBase = L"http://192.168.3.173:7891";
 
 static inline Color C(int r, int g, int b, int a = 255) {
@@ -674,6 +674,7 @@ private:
     void connectServer(int idx);         // 一键启动并直连该服务器
     void pingServerAsync(int idx);       // TCP 连接测速
     void openResourceFolder(int idx);    // 打开资源包/光影/存档等目录
+    void handleDropFiles(HDROP h);       // 拖入 .jar / .zip 导入
     void analyzeCrash();                 // 读取最新崩溃报告并给出建议
     void exportDiagnostics();            // 导出诊断信息
     void installFabricAsync();           // 为当前版本安装 Fabric
@@ -761,6 +762,9 @@ LRESULT CALLBACK MainWindow::wndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         SetBkColor(hdc, RGB(242, 243, 245));
         return (LRESULT)self.brushInput_;
     }
+    case WM_DROPFILES:
+        self.handleDropFiles((HDROP)w);
+        return 0;
     case WM_COMMAND:
         if (HIWORD(w) == EN_CHANGE) {
             if (LOWORD(w) == CTL_SEARCH) {
@@ -852,6 +856,7 @@ bool MainWindow::createWindow(HINSTANCE hInst, int nCmdShow) {
     applySettingsToLauncher();
 
     layoutControls();
+    DragAcceptFiles(hwnd_, TRUE);
     ShowWindow(hwnd_, nCmdShow);
     UpdateWindow(hwnd_);
 
@@ -2980,6 +2985,50 @@ static int countDirEntries(const std::wstring& dir, const wchar_t* filter) {
     return n;
 }
 
+void MainWindow::handleDropFiles(HDROP h) {
+    UINT count = DragQueryFileW(h, 0xFFFFFFFF, nullptr, 0);
+    int jars = 0, packs = 0, shaders = 0, failed = 0;
+    for (UINT i = 0; i < count; ++i) {
+        wchar_t path[MAX_PATH] = { 0 };
+        if (DragQueryFileW(h, i, path, MAX_PATH) == 0) continue;
+        std::wstring src = path;
+        std::wstring name = src.substr(src.find_last_of(L"\\/") + 1);
+        std::wstring lower = name;
+        for (auto& c : lower) c = (wchar_t)towlower(c);
+        std::wstring dir;
+        if (lower.size() >= 4 && lower.substr(lower.size() - 4) == L".jar") dir = modsDir();
+        else if (lower.size() >= 4 && lower.substr(lower.size() - 4) == L".zip") {
+            bool shader = lower.find(L"shader") != std::wstring::npos || lower.find(L"光影") != std::wstring::npos ||
+                          lower.find(L"bsl") != std::wstring::npos || lower.find(L"complementary") != std::wstring::npos ||
+                          lower.find(L"sildur") != std::wstring::npos || lower.find(L"seus") != std::wstring::npos;
+            dir = joinPath(activeGameDir(), shader ? L"shaderpacks" : L"resourcepacks");
+        } else {
+            continue;
+        }
+        createDirs(dir);
+        std::wstring dest = joinPath(dir, name);
+        if (pathExists(dest)) {
+            std::wstring base = name;
+            std::wstring ext;
+            size_t dot = name.find_last_of(L'.');
+            if (dot != std::wstring::npos) { base = name.substr(0, dot); ext = name.substr(dot); }
+            for (int k = 1; k < 1000; ++k) {
+                dest = joinPath(dir, base + L" (" + std::to_wstring(k) + L")" + ext);
+                if (!pathExists(dest)) break;
+            }
+        }
+        if (CopyFileW(src.c_str(), dest.c_str(), FALSE)) {
+            if (dir == modsDir()) jars++; else if (dir.find(L"shaderpacks") != std::wstring::npos) shaders++; else packs++;
+        } else failed++;
+    }
+    DragFinish(h);
+    std::wstring msg = L"已导入：模组 " + std::to_wstring(jars) + L" 个，资源包 " + std::to_wstring(packs) +
+                       L" 个，光影 " + std::to_wstring(shaders) + L" 个";
+    if (failed) msg += L"，失败 " + std::to_wstring(failed) + L" 个";
+    pushLog(msg);
+    dirty_ = true;
+    MessageBoxW(hwnd_, msg.c_str(), L"MCL 导入", MB_ICONINFORMATION);
+}
 void MainWindow::openResourceFolder(int idx) {
     int count = (int)(sizeof(kResEntries) / sizeof(kResEntries[0]));
     if (idx < 0 || idx >= count) return;

@@ -1,6 +1,6 @@
 {
-    "version":  "1.23.2",
-    "updated":  "2026-11-22 02:59",
+    "version":  "1.24.0",
+    "updated":  "2026-11-22 03:05",
     "file":  "MCLauncher.exe",
-    "notes":  "v1.23.2：启动前 Java 检查解析加载器版本 ID（fabric-loader/quilt-loader/\u003cmc\u003e-forge/neoforge），不再把 Fabric 版本误判为 Java 8。"
+    "notes":  "v1.24.0：支持把 .jar/.zip 拖入窗口导入——jar 进 mods，zip 按文件名判断光影包/资源包，重名自动加 (1)，并提示导入数量。"
 }
