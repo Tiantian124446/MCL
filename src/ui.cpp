@@ -1,6 +1,9 @@
 // ---------------------------------------------------------------------------
 //  ui.cpp  -  自绘 UI (GDI+), 布局参考 PCL2 风格
 // ---------------------------------------------------------------------------
+#include <winsock2.h>
+#include <ws2tcpip.h>
+
 #include "ui.h"
 #include "util.h"
 #include "core.h"
@@ -40,7 +43,7 @@ static const float SCALE_MIN = 0.60f;
 static const float SCALE_MAX = 4.00f;
 
 // 应用版本与发布服务器（Win10 服务器站点）
-static const wchar_t* kAppVersion = L"1.11.0";
+static const wchar_t* kAppVersion = L"1.12.0";
 static const wchar_t* kServerBase = L"http://192.168.3.173:7891";
 
 static inline Color C(int r, int g, int b, int a = 255) {
@@ -115,6 +118,7 @@ enum {
     BTN_SRV_EDIT_BASE      = 720000,   // +列表下标: 载入到表单编辑
     BTN_SRV_DEL_BASE       = 730000,   // +列表下标: 删除
     BTN_SRV_VIS_BASE       = 750000,   // +列表下标: 切换"显示服务器 / 不显示服务器"
+    BTN_SRV_PING_BASE      = 760000,   // +列表下标: TCP 测速
     BTN_VERCAT_BASE        = 800000,
     BTN_RES_OPEN_BASE      = 900000,   // +0..7: 资源管理卡片
     BTN_OPEN_GAMEDIR       = 901000,
@@ -491,6 +495,7 @@ private:
 
     // ---- 联机页状态 (servers_ 一律在 mtx_ 内读写)
     std::vector<ServerEntry> servers_;
+    std::map<std::string, int> srvPingMs_;   // host:port -> ms; -1 超时, -2 测试中
     int  srvSel_ = -1;                 // 列表选中行
     int  srvScroll_ = 0;               // 列表滚动偏移
     int  srvEditIdx_ = -1;             // >=0 表示正在编辑该条目; -1 表示表单为"新增"
@@ -649,6 +654,7 @@ private:
     void commitServerForm();             // 表单 -> 新增 / 更新条目 (含校验)
     void deleteServer(int idx);
     void connectServer(int idx);         // 一键启动并直连该服务器
+    void pingServerAsync(int idx);       // TCP 连接测速
     void openResourceFolder(int idx);    // 打开资源包/光影/存档等目录
     void analyzeCrash();                 // 读取最新崩溃报告并给出建议
     void exportDiagnostics();            // 导出诊断信息
@@ -2756,6 +2762,10 @@ void MainWindow::onCommand(int id) {
         backupSave(id - BTN_SAVE_BACKUP_BASE);
         return;
     }
+    if (id >= BTN_SRV_PING_BASE && id < BTN_SRV_PING_BASE + 1000) {
+        pingServerAsync(id - BTN_SRV_PING_BASE);
+        return;
+    }
     if (id >= BTN_SAVE_DEL_BASE && id < BTN_SAVE_DEL_BASE + 1000) {
         deleteSave(id - BTN_SAVE_DEL_BASE);
         return;
@@ -3501,6 +3511,77 @@ void MainWindow::connectServer(int idx) {
     dirty_ = true;
 }
 
+static int tcpPingMs(const std::wstring& host, int port, int timeoutMs) {
+    static std::once_flag once;
+    std::call_once(once, []() {
+        WSADATA wd{};
+        WSAStartup(MAKEWORD(2, 2), &wd);
+    });
+    std::string h = wideToUtf8(host);
+    std::string ps = std::to_string(port);
+    addrinfo hints{};
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    addrinfo* res = nullptr;
+    if (getaddrinfo(h.c_str(), ps.c_str(), &hints, &res) != 0) return -1;
+    int best = -1;
+    for (addrinfo* ai = res; ai; ai = ai->ai_next) {
+        SOCKET s = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+        if (s == INVALID_SOCKET) continue;
+        u_long nb = 1;
+        ioctlsocket(s, FIONBIO, &nb);
+        unsigned long long t0 = GetTickCount64();
+        int rc = connect(s, ai->ai_addr, (int)ai->ai_addrlen);
+        if (rc == SOCKET_ERROR && WSAGetLastError() == WSAEWOULDBLOCK) {
+            fd_set wf;
+            FD_ZERO(&wf);
+            FD_SET(s, &wf);
+            timeval tv{ timeoutMs / 1000, (timeoutMs % 1000) * 1000 };
+            rc = select(0, nullptr, &wf, nullptr, &tv);
+            if (rc > 0) {
+                int err = 0, len = sizeof(err);
+                getsockopt(s, SOL_SOCKET, SO_ERROR, (char*)&err, &len);
+                rc = (err == 0) ? 0 : SOCKET_ERROR;
+            } else {
+                rc = SOCKET_ERROR;
+            }
+        }
+        if (rc == 0) {
+            int ms = (int)(GetTickCount64() - t0);
+            if (ms < 0) ms = 0;
+            if (best < 0 || ms < best) best = ms;
+        }
+        closesocket(s);
+    }
+    freeaddrinfo(res);
+    return best;
+}
+
+void MainWindow::pingServerAsync(int idx) {
+    std::wstring host;
+    int port = 0;
+    {
+        std::lock_guard<std::mutex> lk(mtx_);
+        if (idx < 0 || idx >= (int)servers_.size()) return;
+        host = servers_[idx].host;
+        port = servers_[idx].port;
+    }
+    std::string key = wideToUtf8(host) + ":" + std::to_string(port);
+    {
+        std::lock_guard<std::mutex> lk(mtx_);
+        srvPingMs_[key] = -2;
+    }
+    dirty_ = true;
+    std::thread([this, host, port, key]() {
+        int ms = tcpPingMs(host, port, 1500);
+        {
+            std::lock_guard<std::mutex> lk(mtx_);
+            srvPingMs_[key] = ms;
+        }
+        dirty_ = true;
+        if (hwnd_) PostMessageW(hwnd_, WM_TIMER, 0, 0);
+    }).detach();
+}
 void MainWindow::drawServers(Graphics& g, int W, int H) {
     FontFamily ff(L"Microsoft YaHei");
     Font fT(&ff, 14.0f, FontStyleBold, UnitPixel);
@@ -3533,10 +3614,12 @@ void MainWindow::drawServers(Graphics& g, int W, int H) {
 
     // ---- 数据快照
     std::vector<ServerEntry> items;
+    std::map<std::string, int> pings;
     int sel = -1;
     {
         std::lock_guard<std::mutex> lk(mtx_);
         items = servers_;
+        pings = srvPingMs_;
         sel = srvSel_;
     }
     int total = (int)items.size();
@@ -3571,13 +3654,14 @@ void MainWindow::drawServers(Graphics& g, int W, int H) {
                       hoverId_ == BTN_SRV_CONNECT_BASE + ri ||
                       hoverId_ == BTN_SRV_EDIT_BASE + ri ||
                       hoverId_ == BTN_SRV_DEL_BASE + ri ||
+                      hoverId_ == BTN_SRV_PING_BASE + ri ||
                       hoverId_ == BTN_SRV_VIS_BASE + ri);
         bool selected = (sel == ri);
         fillRound(g, rr, 8, selected ? kSelBg : (hover ? kHover : kCardBg));
         strokeRound(g, rr, 8, selected ? kAccent : kLine);
         hits_.push_back({ rr, BTN_SRV_ROW_BASE + ri });
 
-        int barW = 352;   // 右侧按钮区宽度 (4 个按钮)
+        int barW = 420;   // 右侧按钮区宽度 (5 个按钮)
         drawText(g, it.name.empty() ? L"(未命名)" : it.name, fT, kText,
                  mkRect(rr.left + 16, rr.top + 7, rr.right - barW, rr.top + 30), 0);
         std::wstring sub = it.host + L":" + std::to_wstring(it.port) +
@@ -3587,6 +3671,15 @@ void MainWindow::drawServers(Graphics& g, int W, int H) {
                  mkRect(rr.left + 16, rr.top + 29, rr.right - barW, rr.top + 49), 0);
 
         int by = ry + (rowH - 6 - bh) / 2;
+        std::string pkey = wideToUtf8(it.host) + ":" + std::to_string(it.port);
+        auto pit = pings.find(pkey);
+        int ping = (pit == pings.end()) ? 0 : pit->second;
+        std::wstring pingText = L"测速";
+        if (ping == -2) pingText = L"…";
+        else if (ping == -1) pingText = L"超时";
+        else if (ping > 0) pingText = std::to_wstring(ping) + L"ms";
+        drawButton(g, mkRect(rr.right - 412, by, rr.right - 352, by + bh), pingText,
+                   BTN_SRV_PING_BASE + ri, false, ping != -2, 11);
         drawButton(g, mkRect(rr.right - 344, by, rr.right - 224, by + bh),
                    it.visible ? L"不显示服务器" : L"显示服务器",
                    BTN_SRV_VIS_BASE + ri, false, true, 11);
