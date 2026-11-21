@@ -4,12 +4,12 @@
 
 ## 当前版本
 
-- 启动器 / 服务器：**v1.17.0**
+- 启动器 / 服务器：**v1.17.1**
 - 站点：<http://192.168.3.173:7891>
 - 管理页：<http://192.168.3.173:7891/admin>（token 见 `C:\MCLServer\admin_token.txt`）
 - GitHub：<https://github.com/Tiantian124446/MCL>
-- Release：<https://github.com/Tiantian124446/MCL/releases/tag/v1.17.0>
-- 最新资产 SHA256：`EC60C6BB1D452AE087D686BC47CFAD63D9EAD7E9F52E2D3D55F7AFFDEE07CAEB`
+- Release：<https://github.com/Tiantian124446/MCL/releases/tag/v1.17.1>
+- 最新资产 SHA256：`39AC475701E3A54C9728DD0370BE63E2E517F32F5AEE523D35BFF90B47B87563`
   （站点下载 = GitHub 资产 = 本地构建，均已校验）
 
 ## 关键资产
@@ -46,6 +46,7 @@
   - 开启后 mods/saves/资源包/光影/截图/日志/崩溃/备份使用 `versions/<版本>/`
   - 版本列表仍指向全局 `versions`
   - 现有全局数据不自动迁移，可随时关闭
+  - v1.17.1 修复「一键进服」在隔离下先应用设置后设置版本导致的目录错位
 - 账户：离线昵称列表、添加/使用/删除、持久化
 - 游戏设置：目录/Java/内存/下载源；Java 扫描与切换；自动备份存档开关
 - 游戏选项：可视化修改 `options.txt`

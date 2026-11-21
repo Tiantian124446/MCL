@@ -43,7 +43,7 @@ static const float SCALE_MIN = 0.60f;
 static const float SCALE_MAX = 4.00f;
 
 // 应用版本与发布服务器（Win10 服务器站点）
-static const wchar_t* kAppVersion = L"1.17.0";
+static const wchar_t* kAppVersion = L"1.17.1";
 static const wchar_t* kServerBase = L"http://192.168.3.173:7891";
 
 static inline Color C(int r, int g, int b, int a = 255) {
@@ -3937,11 +3937,11 @@ void MainWindow::connectServer(int idx) {
     playerName_ = trimW(buf);
     if (playerName_.empty()) playerName_ = L"Steve";
 
+    selVersion_ = utf8ToWide(id);
     applySettingsToLauncher();
     launcher_.opt.serverAddress = wideToUtf8(host);   // 直连参数只在这一条路径上注入
     launcher_.opt.serverPort = port;
     saveSettings();
-    selVersion_ = utf8ToWide(id);
 
     busy_ = true;
     launcher_.cancelled = false;
