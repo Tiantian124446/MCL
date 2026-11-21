@@ -40,7 +40,7 @@ static const float SCALE_MIN = 0.60f;
 static const float SCALE_MAX = 4.00f;
 
 // 应用版本与发布服务器（Win10 服务器站点）
-static const wchar_t* kAppVersion = L"1.6.0";
+static const wchar_t* kAppVersion = L"1.7.0";
 static const wchar_t* kServerBase = L"http://192.168.3.173:7891";
 
 static inline Color C(int r, int g, int b, int a = 255) {
@@ -121,6 +121,8 @@ enum {
     BTN_EXPORT_DIAG        = 901002,
     BTN_MODMGR_REFRESH     = 901003,
     BTN_MODMGR_OPEN        = 901004,
+    BTN_MODMGR_ENABLE_ALL  = 901005,
+    BTN_MODMGR_DISABLE_ALL = 901006,
     BTN_MODMGR_TOGGLE_BASE = 910000,   // +列表下标: 启用/禁用
     BTN_MODMGR_DEL_BASE    = 920000,   // +列表下标: 删除
     BTN_SAVE_OPEN_BASE     = 930000,   // +列表下标: 打开存档目录
@@ -638,6 +640,7 @@ private:
     void loadInstalledMods();            // 扫描 mods 目录
     void toggleInstalledMod(int idx);    // 启用/禁用模组
     void deleteInstalledMod(int idx);    // 删除模组
+    void setAllMods(bool enable);        // 全部启用 / 全部禁用
     void loadSaves();                    // 扫描 saves 目录
     void backupSave(int idx);            // 备份存档
     void deleteSave(int idx);            // 删除存档
@@ -1895,6 +1898,29 @@ void MainWindow::deleteInstalledMod(int idx) {
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
+void MainWindow::setAllMods(bool enable) {
+    int changed = 0, failed = 0;
+    std::wstring dir = modsDir();
+    for (auto& m : installedMods_) {
+        if (m.enabled == enable) continue;
+        std::wstring from = joinPath(dir, m.file);
+        std::wstring to;
+        if (enable) {
+            if (!endsWithNoCase(from, L".disabled")) continue;
+            to = from.substr(0, from.size() - 9);
+        } else {
+            to = from + L".disabled";
+        }
+        if (MoveFileW(from.c_str(), to.c_str())) changed++;
+        else failed++;
+    }
+    loadInstalledMods();
+    std::wstring msg = (enable ? L"全部启用完成，变更 " : L"全部禁用完成，变更 ") + std::to_wstring(changed) + L" 个";
+    if (failed) msg += L"，失败 " + std::to_wstring(failed) + L" 个（可能被占用）";
+    pushLog(msg);
+    dirty_ = true;
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
 void MainWindow::drawModMgr(Graphics& g, int W, int H) {
     FontFamily ff(L"Microsoft YaHei");
     Font fL(&ff, 12.0f, FontStyleRegular, UnitPixel);
@@ -1908,20 +1934,24 @@ void MainWindow::drawModMgr(Graphics& g, int W, int H) {
 
     RECT info = mkRect(cx, y, cx + cw, y + 64);
     drawCard(g, info);
-    RECT t1 = mkRect(info.left + 16, info.top + 8, info.right - 320, info.top + 30);
+    RECT t1 = mkRect(info.left + 16, info.top + 8, info.right - 440, info.top + 30);
     drawText(g, L"模组目录", fL, kTextDim, t1, 0);
-    RECT t2 = mkRect(info.left + 16, info.top + 28, info.right - 320, info.top + 50);
+    RECT t2 = mkRect(info.left + 16, info.top + 28, info.right - 440, info.top + 50);
     drawText(g, modsDir(), fD, kText, t2, 0);
     int en = 0, dis = 0;
     for (auto& m : installedMods_) { if (m.enabled) en++; else dis++; }
     std::wstring cnt = L"共 " + std::to_wstring(installedMods_.size()) + L" 个 · 已启用 " +
                        std::to_wstring(en) + L" · 已禁用 " + std::to_wstring(dis);
-    RECT t3 = mkRect(info.left + 16, info.top + 46, info.right - 320, info.top + 62);
+    RECT t3 = mkRect(info.left + 16, info.top + 46, info.right - 440, info.top + 62);
     drawText(g, cnt, fD, kTextDim, t3, 0);
-    RECT b1 = mkRect(info.right - 300, info.top + 16, info.right - 168, info.top + 46);
+    RECT b1 = mkRect(info.right - 420, info.top + 16, info.right - 330, info.top + 46);
     drawButton(g, b1, L"刷新", BTN_MODMGR_REFRESH, false, true, 12);
-    RECT b2 = mkRect(info.right - 156, info.top + 16, info.right - 16, info.top + 46);
-    drawButton(g, b2, L"打开 mods 文件夹", BTN_MODMGR_OPEN, false, true, 12);
+    RECT b2 = mkRect(info.right - 322, info.top + 16, info.right - 222, info.top + 46);
+    drawButton(g, b2, L"全部启用", BTN_MODMGR_ENABLE_ALL, false, true, 12);
+    RECT b3 = mkRect(info.right - 214, info.top + 16, info.right - 114, info.top + 46);
+    drawButton(g, b3, L"全部禁用", BTN_MODMGR_DISABLE_ALL, false, true, 12);
+    RECT b4 = mkRect(info.right - 106, info.top + 16, info.right - 16, info.top + 46);
+    drawButton(g, b4, L"打开目录", BTN_MODMGR_OPEN, false, true, 12);
 
     int listTop = y + 64 + 12;
     int listBottom = H - 16;
@@ -2101,14 +2131,14 @@ void MainWindow::drawSaves(Graphics& g, int W, int H) {
 
     RECT info = mkRect(cx, y, cx + cw, y + 64);
     drawCard(g, info);
-    RECT t1 = mkRect(info.left + 16, info.top + 8, info.right - 320, info.top + 30);
+    RECT t1 = mkRect(info.left + 16, info.top + 8, info.right - 440, info.top + 30);
     drawText(g, L"存档目录", fL, kTextDim, t1, 0);
-    RECT t2 = mkRect(info.left + 16, info.top + 28, info.right - 320, info.top + 50);
+    RECT t2 = mkRect(info.left + 16, info.top + 28, info.right - 440, info.top + 50);
     drawText(g, joinPath(gameDir_, L"saves"), fD, kText, t2, 0);
     unsigned long long total = 0;
     for (auto& e : saves_) total += e.size;
     std::wstring cnt = L"共 " + std::to_wstring(saves_.size()) + L" 个存档 · 合计 " + humanSize(total);
-    RECT t3 = mkRect(info.left + 16, info.top + 46, info.right - 320, info.top + 62);
+    RECT t3 = mkRect(info.left + 16, info.top + 46, info.right - 440, info.top + 62);
     drawText(g, cnt, fD, kTextDim, t3, 0);
     RECT b1 = mkRect(info.right - 300, info.top + 16, info.right - 168, info.top + 46);
     drawButton(g, b1, L"刷新", BTN_MODMGR_REFRESH, false, true, 12);
@@ -2447,6 +2477,8 @@ void MainWindow::onCommand(int id) {
         exportDiagnostics();
         return;
     }
+    if (id == BTN_MODMGR_ENABLE_ALL) { setAllMods(true); return; }
+    if (id == BTN_MODMGR_DISABLE_ALL) { setAllMods(false); return; }
     if (id == BTN_ANALYZE_CRASH) {
         analyzeCrash();
         return;
