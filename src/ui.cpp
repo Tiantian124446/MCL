@@ -43,7 +43,7 @@ static const float SCALE_MIN = 0.60f;
 static const float SCALE_MAX = 4.00f;
 
 // 应用版本与发布服务器（Win10 服务器站点）
-static const wchar_t* kAppVersion = L"1.21.0";
+static const wchar_t* kAppVersion = L"1.22.0";
 static const wchar_t* kServerBase = L"http://192.168.3.173:7891";
 
 static inline Color C(int r, int g, int b, int a = 255) {
@@ -928,6 +928,16 @@ void MainWindow::loadSettings() {
     // 未配置或配置低于 3GB 时, 按物理内存给出推荐值 (不小于 4096MB)
     if (memoryMB_ < 3072) memoryMB_ = recommendMemoryMB();
     if (gameDir_.empty()) gameDir_ = joinPath(exeDir(), L".minecraft");
+    if (!pathExists(gameDir_)) {
+        createDirs(gameDir_);
+        if (!pathExists(gameDir_)) gameDir_ = joinPath(exeDir(), L".minecraft");
+    }
+    if (!javaPath_.empty() && !pathExists(javaPath_)) {
+        std::wstring bad = javaPath_;
+        std::wstring autoJ = Launcher::autoDetectJava();
+        if (!autoJ.empty()) javaPath_ = autoJ;
+        pushLog(L"Java 路径失效: " + bad + L" -> " + (autoJ.empty() ? std::wstring(L"(自动检测为空)") : autoJ));
+    }
     // 没有任何版本信息时, 退回到本地已安装的第一个版本, 方便直接开玩
     if (selVersion_.empty()) {
         std::vector<std::string> local = launcher_.listInstalled();
@@ -3595,7 +3605,27 @@ void MainWindow::onCommand(int id) {
     case BTN_SAVE: {
         wchar_t buf[4096];
         GetWindowTextW(editDir_, buf, 4096); gameDir_ = trimW(buf);
+        if (gameDir_.empty()) {
+            MessageBoxW(hwnd_, L"游戏目录不能为空。", L"设置", MB_ICONWARNING);
+            return;
+        }
+        if (!pathExists(gameDir_)) {
+            createDirs(gameDir_);
+            if (!pathExists(gameDir_)) {
+                MessageBoxW(hwnd_, L"游戏目录不存在且无法创建。", L"设置", MB_ICONWARNING);
+                return;
+            }
+        }
         GetWindowTextW(editJava_, buf, 4096); javaPath_ = trimW(buf);
+        if (!javaPath_.empty() && !pathExists(javaPath_)) {
+            std::wstring autoJ = Launcher::autoDetectJava();
+            if (autoJ.empty()) {
+                MessageBoxW(hwnd_, L"Java 路径不存在，且没有自动检测到可用 Java。", L"设置", MB_ICONWARNING);
+                return;
+            }
+            javaPath_ = autoJ;
+            SetWindowTextW(editJava_, javaPath_.c_str());
+        }
         GetWindowTextW(editMem_, buf, 64);
         try { memoryMB_ = std::stoi(buf); } catch (...) {}
         if (memoryMB_ < kMemMinMB) memoryMB_ = kMemMinMB;
