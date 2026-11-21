@@ -1,6 +1,6 @@
 {
-    "version":  "1.13.0",
-    "updated":  "2026-11-22 01:49",
+    "version":  "1.14.0",
+    "updated":  "2026-11-22 01:55",
     "file":  "MCLauncher.exe",
-    "notes":  "v1.13.0：启动时自动备份存档（24 小时一次，backups/auto_时间戳），游戏设置新增开关，后台 SHFileOperation 静默复制。"
+    "notes":  "v1.14.0：新增「游戏选项」页，可视化修改 options.txt（渲染/模拟距离、最大帧率、视场角、图形模式、粒子、云、全屏），保存保留未知项。"
 }
