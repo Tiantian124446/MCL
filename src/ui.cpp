@@ -43,7 +43,7 @@ static const float SCALE_MIN = 0.60f;
 static const float SCALE_MAX = 4.00f;
 
 // 应用版本与发布服务器（Win10 服务器站点）
-static const wchar_t* kAppVersion = L"1.25.0";
+static const wchar_t* kAppVersion = L"1.26.1";
 static const wchar_t* kServerBase = L"http://192.168.3.173:7891";
 
 static inline Color C(int r, int g, int b, int a = 255) {
@@ -2231,7 +2231,31 @@ void MainWindow::downloadLatestAsync() {
         dlActive_ = false;
         if (ok) {
             pushLog(L"已下载最新版: " + file);
-            MessageBoxW(hwnd_, (L"最新版已下载：\n" + file).c_str(), L"MCL 下载", MB_ICONINFORMATION);
+            int choice = MessageBoxW(hwnd_,
+                (L"最新版已下载：\n" + file + L"\n\n是否立即用新版本替换当前启动器并重启？").c_str(),
+                L"MCL 更新", MB_YESNO | MB_ICONQUESTION);
+            if (choice == IDYES) {
+                wchar_t exePath[MAX_PATH] = { 0 };
+                GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+                wchar_t tmp[MAX_PATH] = { 0 };
+                GetTempPathW(MAX_PATH, tmp);
+                std::wstring bat = joinPath(tmp, L"mcl_self_update.bat");
+                std::string script;
+                script += "@echo off\r\n";
+                script += "chcp 65001 >nul\r\n";
+                script += "timeout /t 2 /nobreak >nul\r\n";
+                script += "copy /y \"" + wideToUtf8(file) + "\" \"" + wideToUtf8(std::wstring(exePath)) + "\" >nul\r\n";
+                script += "start \"\" \"" + wideToUtf8(std::wstring(exePath)) + "\"\r\n";
+                script += "del \"%~f0\"\r\n";
+                FILE* fp = _wfopen(bat.c_str(), L"wb");
+                if (fp) { fwrite(script.data(), 1, script.size(), fp); fclose(fp); }
+                if (fp && ShellExecuteW(nullptr, L"open", bat.c_str(), nullptr, nullptr, SW_HIDE) > (HINSTANCE)32) {
+                    pushLog(L"正在替换启动器并重启…");
+                    PostMessageW(hwnd_, WM_CLOSE, 0, 0);
+                    return;
+                }
+                MessageBoxW(hwnd_, L"无法启动更新脚本，已保留下载文件。", L"MCL 更新", MB_ICONWARNING);
+            }
             ShellExecuteW(nullptr, L"open", dir.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         } else {
             pushLog(L"下载最新版失败: " + err);
