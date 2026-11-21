@@ -43,7 +43,7 @@ static const float SCALE_MIN = 0.60f;
 static const float SCALE_MAX = 4.00f;
 
 // 应用版本与发布服务器（Win10 服务器站点）
-static const wchar_t* kAppVersion = L"1.24.0";
+static const wchar_t* kAppVersion = L"1.25.0";
 static const wchar_t* kServerBase = L"http://192.168.3.173:7891";
 
 static inline Color C(int r, int g, int b, int a = 255) {
@@ -135,6 +135,7 @@ enum {
     BTN_INSTALL_FABRIC     = 901015,
     BTN_INSTALL_FORGE      = 901016,
     BTN_DOWNLOAD_LATEST    = 901017,
+    BTN_RES_WEB_BASE       = 908000,   // +资源卡片下标：Modrinth 搜索
     BTN_AUTO_BACKUP        = 901009,
     BTN_GOPT_SAVE          = 901010,
     BTN_NAV_GOPT,
@@ -3090,6 +3091,10 @@ void MainWindow::drawResources(Graphics& g, int W, int H) {
 
         RECT rb = mkRect(c.left + 16, c.top + 68, c.left + 126, c.top + 98);
         drawButton(g, rb, L"打开文件夹", BTN_RES_OPEN_BASE + i, false, true, 12);
+        if (wcscmp(kResEntries[i].dir, L"resourcepacks") == 0 || wcscmp(kResEntries[i].dir, L"shaderpacks") == 0) {
+            RECT rw = mkRect(c.left + 136, c.top + 68, c.left + 276, c.top + 98);
+            drawButton(g, rw, L"Modrinth 搜索", BTN_RES_WEB_BASE + i, false, true, 11);
+        }
         if (wcscmp(kResEntries[i].dir, L"crash-reports") == 0) {
             RECT ra = mkRect(c.left + 136, c.top + 68, c.left + 246, c.top + 98);
             drawButton(g, ra, L"分析最新崩溃", BTN_ANALYZE_CRASH, true, true, 12);
@@ -3297,6 +3302,16 @@ void MainWindow::onCommand(int id) {
     if (id == BTN_INSTALL_FABRIC) { installFabricAsync(); return; }
     if (id == BTN_INSTALL_FORGE) { installForgeAsync(); return; }
     if (id == BTN_DOWNLOAD_LATEST) { downloadLatestAsync(); return; }
+    if (id >= BTN_RES_WEB_BASE && id < BTN_RES_WEB_BASE + 100) {
+        int ri = id - BTN_RES_WEB_BASE;
+        const wchar_t* url = nullptr;
+        if (ri >= 0 && ri < (int)(sizeof(kResEntries) / sizeof(kResEntries[0]))) {
+            if (wcscmp(kResEntries[ri].dir, L"resourcepacks") == 0) url = L"https://modrinth.com/resourcepacks";
+            else if (wcscmp(kResEntries[ri].dir, L"shaderpacks") == 0) url = L"https://modrinth.com/shaders";
+        }
+        if (url) ShellExecuteW(nullptr, L"open", url, nullptr, nullptr, SW_SHOWNORMAL);
+        return;
+    }
     if (id >= BTN_GOPT_DEC_BASE && id < BTN_GOPT_INC_BASE) {
         int row = id - BTN_GOPT_DEC_BASE;
         const char* key = nullptr; int mn = 0, mx = 0, step = 1;
