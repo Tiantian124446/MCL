@@ -43,7 +43,7 @@ static const float SCALE_MIN = 0.60f;
 static const float SCALE_MAX = 4.00f;
 
 // 应用版本与发布服务器（Win10 服务器站点）
-static const wchar_t* kAppVersion = L"1.16.0";
+static const wchar_t* kAppVersion = L"1.17.0";
 static const wchar_t* kServerBase = L"http://192.168.3.173:7891";
 
 static inline Color C(int r, int g, int b, int a = 255) {
@@ -131,6 +131,7 @@ enum {
     BTN_JAVA_SCAN          = 901007,
     BTN_ACCOUNT_ADD        = 901008,
     BTN_SAVE_RESTORE       = 901013,
+    BTN_ISOLATION          = 901014,
     BTN_AUTO_BACKUP        = 901009,
     BTN_GOPT_SAVE          = 901010,
     BTN_NAV_GOPT,
@@ -502,6 +503,7 @@ private:
     std::wstring javaInfo_;
     bool         useMirror_ = true;
     bool autoBackup_ = true;
+    bool isolation_ = false;
     bool autoBackupChecked_ = false;
 
     // ---- 联机页状态 (servers_ 一律在 mtx_ 内读写)
@@ -650,6 +652,7 @@ private:
     void ensureCover(const std::wstring& url);
     Gdiplus::Image* coverImage(const std::wstring& url);
     std::wstring modsDir() const;
+    std::wstring activeGameDir() const;   // 版本隔离后的实际数据目录
     int  collectGameVersions(std::vector<std::wstring>& out) const;   // 扫描本地 versions 目录
 
     // ---- 联机页业务动作
@@ -891,6 +894,7 @@ void MainWindow::loadSettings() {
             else if (k == "memory")   { try { memoryMB_ = std::stoi(v); } catch (...) {} }
             else if (k == "mirror")   useMirror_ = (v == "1");
             else if (k == "autobackup") autoBackup_ = (v == "1");
+            else if (k == "isolation") isolation_ = (v == "1");
             else if (k == "version")  selVersion_ = utf8ToWide(v);
             else if (k == "verCat")   { try { verCat_ = std::stoi(v); } catch (...) { verCat_ = 0; } }
             else if (k == "accounts") {
@@ -931,6 +935,14 @@ void MainWindow::syncAccountList() {
     accounts_.push_back(playerName_);
 }
 
+std::wstring MainWindow::activeGameDir() const {
+    std::wstring root = gameDir_.empty() ? joinPath(exeDir(), L".minecraft") : gameDir_;
+    if (isolation_ && !selVersion_.empty()) {
+        return joinPath(joinPath(root, L"versions"), selVersion_);
+    }
+    return root;
+}
+
 void MainWindow::saveSettings() {
     syncAccountList();
     FILE* fp = _wfopen(settingsPath().c_str(), L"wb");
@@ -942,6 +954,7 @@ void MainWindow::saveSettings() {
     out += "memory=" + std::to_string(memoryMB_) + "\r\n";
     out += "mirror=" + std::string(useMirror_ ? "1" : "0") + "\r\n";
     out += "autobackup=" + std::string(autoBackup_ ? "1" : "0") + "\r\n";
+    out += "isolation=" + std::string(isolation_ ? "1" : "0") + "\r\n";
     out += "version=" + wideToUtf8(selVersion_) + "\r\n";
     out += "verCat=" + std::to_string(verCat_) + "\r\n";
     out += "accounts=";
@@ -955,7 +968,15 @@ void MainWindow::saveSettings() {
 }
 
 void MainWindow::applySettingsToLauncher() {
-    launcher_.opt.gameDir = gameDir_;
+    launcher_.opt.gameDir = activeGameDir();
+    if (isolation_) {
+        std::wstring gd = activeGameDir();
+        createDirs(gd);
+        createDirs(joinPath(gd, L"mods"));
+        createDirs(joinPath(gd, L"saves"));
+        createDirs(joinPath(gd, L"resourcepacks"));
+        createDirs(joinPath(gd, L"shaderpacks"));
+    }
     launcher_.opt.javaPath = javaPath_;
     launcher_.opt.playerName = wideToUtf8(playerName_);
     launcher_.opt.maxMemoryMB = memoryMB_;
@@ -1042,7 +1063,7 @@ void MainWindow::layoutControls() {
         int y = HEADER_H + 16;
         int c2 = y + 64 + 12;
         int c3 = c2 + 64 + 12;
-        SetWindowPos(editDir_, nullptr, S(cx + 100), S(y + 18), S(cw - 260), S(28), SWP_NOZORDER);
+        SetWindowPos(editDir_, nullptr, S(cx + 100), S(y + 18), S(cw - 440), S(28), SWP_NOZORDER);
         ShowWindow(editDir_, SW_SHOW);
         SetWindowPos(editJava_, nullptr, S(cx + 100), S(c2 + 18), S(cw - 430), S(28), SWP_NOZORDER);
         ShowWindow(editJava_, SW_SHOW);
@@ -1789,9 +1810,9 @@ void MainWindow::drawAccounts(Graphics& g, int W, int H) {
 }
 void MainWindow::maybeAutoBackup() {
     if (!autoBackup_) return;
-    std::wstring saves = joinPath(gameDir_, L"saves");
+    std::wstring saves = joinPath(activeGameDir(), L"saves");
     if (!pathExists(saves)) return;
-    std::wstring backups = joinPath(gameDir_, L"backups");
+    std::wstring backups = joinPath(activeGameDir(), L"backups");
     unsigned long long newest = 0;
     {
         WIN32_FIND_DATAW fd;
@@ -2010,6 +2031,20 @@ void MainWindow::drawSettings(Graphics& g, int W, int H) {
     drawText(g, L"游戏目录", fL, kTextDim, l1, 0);
     RECT b1 = mkRect(c1.right - 108, c1.top + 17, c1.right - 16, c1.bottom - 17);
     drawButton(g, b1, L"浏览", BTN_BROWSE_DIR, false, true, 12);
+    {
+        bool hover = (hoverId_ == BTN_ISOLATION);
+        RECT sq = mkRect(c1.right - 292, c1.top + 23, c1.right - 274, c1.top + 41);
+        fillRound(g, sq, 4, isolation_ ? kAccent : kWhite);
+        strokeRound(g, sq, 4, isolation_ ? kAccent : (hover ? C(160, 165, 172) : C(190, 194, 200)));
+        if (isolation_) {
+            Pen p(kWhite, 2.0f);
+            g.DrawLine(&p, (float)(sq.left + 4), (float)(sq.top + 9), (float)(sq.left + 8), (float)(sq.top + 13));
+            g.DrawLine(&p, (float)(sq.left + 8), (float)(sq.top + 13), (float)(sq.left + 14), (float)(sq.top + 5));
+        }
+        RECT tr = mkRect(sq.right + 8, c1.top, c1.right - 120, c1.bottom);
+        drawText(g, L"版本隔离", fL, kText, tr, 0);
+        hits_.push_back({ mkRect(c1.right - 300, c1.top, c1.right - 110, c1.bottom), BTN_ISOLATION });
+    }
 
     // 卡片2: Java
     int y2 = y + 64 + 12;
@@ -2231,8 +2266,8 @@ void MainWindow::exportDiagnostics() {
         return n;
     };
 
-    std::wstring logsDir = joinPath(gameDir_, L"logs");
-    std::wstring crashDir = joinPath(gameDir_, L"crash-reports");
+    std::wstring logsDir = joinPath(activeGameDir(), L"logs");
+    std::wstring crashDir = joinPath(activeGameDir(), L"crash-reports");
     std::wstring latestLog, latestCrash;
     newestFileInDir(logsDir, L"latest.log", latestLog);
     if (!newestFileInDir(crashDir, L"crash-*.txt", latestCrash)) newestFileInDir(crashDir, L"*.txt", latestCrash);
@@ -2259,9 +2294,9 @@ void MainWindow::exportDiagnostics() {
         t += L"已安装版本: " + list + L"\r\n";
     }
     t += L"模组数: " + std::to_wstring(countFiles(modsDir(), L"*")) + L"\r\n";
-    t += L"资源包数: " + std::to_wstring(countFiles(joinPath(gameDir_, L"resourcepacks"), L"*")) + L"\r\n";
-    t += L"光影包数: " + std::to_wstring(countFiles(joinPath(gameDir_, L"shaderpacks"), L"*")) + L"\r\n";
-    t += L"存档数: " + std::to_wstring(countDirs(joinPath(gameDir_, L"saves"))) + L"\r\n";
+    t += L"资源包数: " + std::to_wstring(countFiles(joinPath(activeGameDir(), L"resourcepacks"), L"*")) + L"\r\n";
+    t += L"光影包数: " + std::to_wstring(countFiles(joinPath(activeGameDir(), L"shaderpacks"), L"*")) + L"\r\n";
+    t += L"存档数: " + std::to_wstring(countDirs(joinPath(activeGameDir(), L"saves"))) + L"\r\n";
     t += L"最新日志: " + (latestLog.empty() ? L"(无)" : latestLog) + L"\r\n";
     t += L"最新崩溃报告: " + (latestCrash.empty() ? L"(无)" : latestCrash) + L"\r\n";
     t += L"发布服务器: http://192.168.3.173:7891\r\n";
@@ -2286,8 +2321,8 @@ void MainWindow::exportDiagnostics() {
 }
 
 void MainWindow::analyzeCrash() {
-    std::wstring crashDir = joinPath(gameDir_, L"crash-reports");
-    std::wstring logsDir  = joinPath(gameDir_, L"logs");
+    std::wstring crashDir = joinPath(activeGameDir(), L"crash-reports");
+    std::wstring logsDir  = joinPath(activeGameDir(), L"logs");
     std::wstring file;
     bool fromCrash = newestFileInDir(crashDir, L"crash-*.txt", file);
     if (!fromCrash) fromCrash = newestFileInDir(crashDir, L"*.txt", file);
@@ -2605,7 +2640,7 @@ static std::wstring fileTimeText(const FILETIME& ft) {
 
 void MainWindow::loadSaves() {
     saves_.clear();
-    std::wstring dir = joinPath(gameDir_, L"saves");
+    std::wstring dir = joinPath(activeGameDir(), L"saves");
     if (!pathExists(dir)) createDirs(dir);
     WIN32_FIND_DATAW fd;
     HANDLE h = FindFirstFileW((dir + L"\\*").c_str(), &fd);
@@ -2631,7 +2666,7 @@ void MainWindow::loadSaves() {
 void MainWindow::backupSave(int idx) {
     if (idx < 0 || idx >= (int)saves_.size()) return;
     const SaveEntry& e = saves_[idx];
-    std::wstring backups = joinPath(gameDir_, L"backups");
+    std::wstring backups = joinPath(activeGameDir(), L"backups");
     createDirs(backups);
     SYSTEMTIME st{};
     GetLocalTime(&st);
@@ -2696,7 +2731,7 @@ static bool copyTreeOverwrite(const std::wstring& src, const std::wstring& dst) 
 }
 
 void MainWindow::restoreLatestBackup() {
-    std::wstring backups = joinPath(gameDir_, L"backups");
+    std::wstring backups = joinPath(activeGameDir(), L"backups");
     WIN32_FIND_DATAW fd;
     HANDLE h = FindFirstFileW((backups + L"\\saves_*").c_str(), &fd);
     if (h == INVALID_HANDLE_VALUE) {
@@ -2724,7 +2759,7 @@ void MainWindow::restoreLatestBackup() {
         return;
     }
     std::wstring backupPath = joinPath(backups, newest);
-    std::wstring savesDir = joinPath(gameDir_, L"saves");
+    std::wstring savesDir = joinPath(activeGameDir(), L"saves");
     std::wstring dest = joinPath(savesDir, base);
     std::wstring msg = L"将用备份恢复存档：\n" + base + L"\n\n当前存档会先改名为 " + base + L".before_restore_<时间>。\n继续吗？";
     if (MessageBoxW(hwnd_, msg.c_str(), L"恢复存档", MB_ICONWARNING | MB_YESNO) != IDYES) return;
@@ -2765,7 +2800,7 @@ void MainWindow::drawSaves(Graphics& g, int W, int H) {
     RECT t1 = mkRect(info.left + 16, info.top + 8, info.right - 440, info.top + 30);
     drawText(g, L"存档目录", fL, kTextDim, t1, 0);
     RECT t2 = mkRect(info.left + 16, info.top + 28, info.right - 440, info.top + 50);
-    drawText(g, joinPath(gameDir_, L"saves"), fD, kText, t2, 0);
+    drawText(g, joinPath(activeGameDir(), L"saves"), fD, kText, t2, 0);
     unsigned long long total = 0;
     for (auto& e : saves_) total += e.size;
     std::wstring cnt = L"共 " + std::to_wstring(saves_.size()) + L" 个存档 · 合计 " + humanSize(total);
@@ -2862,7 +2897,8 @@ static int countDirEntries(const std::wstring& dir, const wchar_t* filter) {
 void MainWindow::openResourceFolder(int idx) {
     int count = (int)(sizeof(kResEntries) / sizeof(kResEntries[0]));
     if (idx < 0 || idx >= count) return;
-    std::wstring dir = joinPath(gameDir_, kResEntries[idx].dir);
+    std::wstring rbase = (wcscmp(kResEntries[idx].dir, L"versions") == 0) ? gameDir_ : activeGameDir();
+    std::wstring dir = joinPath(rbase, kResEntries[idx].dir);
     if (!pathExists(dir)) createDirs(dir);
     ShellExecuteW(nullptr, L"open", dir.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 }
@@ -2885,7 +2921,7 @@ void MainWindow::drawResources(Graphics& g, int W, int H) {
     RECT t1 = mkRect(info.left + 16, info.top + 8, info.right - 140, info.top + 30);
     drawText(g, L"当前游戏目录", fL, kTextDim, t1, 0);
     RECT t2 = mkRect(info.left + 16, info.top + 28, info.right - 140, info.top + 50);
-    drawText(g, gameDir_, fD, kText, t2, 0);
+    drawText(g, activeGameDir(), fD, kText, t2, 0);
     RECT b0 = mkRect(info.right - 128, info.top + 14, info.right - 16, info.top + 44);
     drawButton(g, b0, L"打开 .minecraft", BTN_OPEN_GAMEDIR, false, true, 12);
 
@@ -2907,7 +2943,8 @@ void MainWindow::drawResources(Graphics& g, int W, int H) {
         RECT rt = mkRect(c.left + 16, c.top + 12, c.right - 90, c.top + 36);
         drawText(g, kResEntries[i].title, fB, kText, rt, 0);
 
-        std::wstring dir = joinPath(gameDir_, kResEntries[i].dir);
+        std::wstring rbase = (wcscmp(kResEntries[i].dir, L"versions") == 0) ? gameDir_ : activeGameDir();
+        std::wstring dir = joinPath(rbase, kResEntries[i].dir);
         int n = countDirEntries(dir, kResEntries[i].filter);
         std::wstring cnt = std::to_wstring(n) + L" 项";
         RECT rc = mkRect(c.right - 86, c.top + 14, c.right - 16, c.top + 36);
@@ -3109,7 +3146,7 @@ void MainWindow::onCommand(int id) {
         return;
     }
     if (id == BTN_MODMGR_OPEN) {
-        std::wstring d = (page_ == 8) ? joinPath(gameDir_, L"backups") : modsDir();
+        std::wstring d = (page_ == 8) ? joinPath(activeGameDir(), L"backups") : modsDir();
         if (!pathExists(d)) createDirs(d);
         ShellExecuteW(nullptr, L"open", d.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         return;
@@ -3490,6 +3527,19 @@ void MainWindow::onCommand(int id) {
         MessageBoxW(hwnd_, L"设置已保存。", L"提示", MB_ICONINFORMATION);
         break;
     }
+
+    case BTN_ISOLATION:
+        isolation_ = !isolation_;
+        saveSettings();
+        if (page_ == 8) loadSaves();
+        pushLog(isolation_ ? L"已开启版本隔离：mods/saves 等从 versions/<版本>/ 读取"
+                           : L"已关闭版本隔离：回到全局 .minecraft");
+        if (isolation_ && !selVersion_.empty()) {
+            MessageBoxW(hwnd_, L"版本隔离已开启。\n\n当前版本的 mods、saves、resourcepacks 等将从 versions/<版本>/ 读取；现有的全局数据不会自动迁移。",
+                        L"版本隔离", MB_ICONINFORMATION);
+        }
+        dirty_ = true;
+        break;
 
     case BTN_AUTO_BACKUP:
         autoBackup_ = !autoBackup_;
@@ -4302,9 +4352,9 @@ void MainWindow::launchSelectedAsync() {
     playerName_ = trimW(buf);
     if (playerName_.empty()) playerName_ = L"Steve";
 
+    selVersion_ = utf8ToWide(id);
     applySettingsToLauncher();
     saveSettings();
-    selVersion_ = utf8ToWide(id);
 
     busy_ = true;
     launcher_.cancelled = false;
@@ -4337,9 +4387,7 @@ void MainWindow::openModPage() {
 
 // <游戏目录>\.minecraft\mods
 std::wstring MainWindow::modsDir() const {
-    std::wstring gd = gameDir_;
-    if (gd.empty()) gd = joinPath(exeDir(), L".minecraft");
-    return joinPath(gd, L"mods");
+    return joinPath(activeGameDir(), L"mods");
 }
 
 // 扫描 <游戏目录>\.minecraft\versions 下的本地版本, 用于填充"目标 MC 版本"
