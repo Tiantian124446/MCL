@@ -9,6 +9,18 @@ $Port = 7891
 $HostWatcher = 'http://192.168.3.155:8098/feedback'
 foreach ($d in @($WebDir, $DlDir, $FbDir, $LogDir)) { if (-not (Test-Path $d)) { New-Item -ItemType Directory -Path $d -Force | Out-Null } }
 $LogFile = Join-Path $LogDir 'server.log'
+$AdminTokenFile = Join-Path $Root 'admin_token.txt'
+if (-not (Test-Path $AdminTokenFile)) {
+  try {
+    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    $bytes = New-Object byte[] 16
+    $rng.GetBytes($bytes)
+    $hex = ($bytes | ForEach-Object { $_.ToString('x2') }) -join ''
+    [IO.File]::WriteAllText($AdminTokenFile, $hex, (New-Object System.Text.UTF8Encoding($false)))
+  } catch { }
+}
+$AdminToken = ''
+if (Test-Path $AdminTokenFile) { try { $AdminToken = ([IO.File]::ReadAllText($AdminTokenFile, [Text.Encoding]::UTF8)).Trim() } catch {} }
 $script:LastFb = @{}
 
 function Log([string]$msg) {
@@ -103,7 +115,7 @@ function Read-Request($stream) {
   $method = if ($parts.Length -gt 0) { $parts[0].ToUpperInvariant() } else { 'GET' }
   $url = if ($parts.Length -gt 1) { $parts[1] } else { '/' }
   $path = $url.Split('?')[0]
-  return @{ Method = $method; Path = $path; Headers = $headers; Body = $bodyBytes; Raw = $requestLine }
+  return @{ Method = $method; Path = $path; Url = $url; Headers = $headers; Body = $bodyBytes; Raw = $requestLine }
 }
 
 function Handle-Request($client) {
@@ -215,6 +227,42 @@ function Handle-Request($client) {
       $respBytes = $enc.GetBytes($content)
       $disp = 'attachment; filename="BUG_fankui.txt"; filename*=UTF-8''' + [Uri]::EscapeDataString('BUG反馈.txt')
       Send-Response $stream 200 'text/plain; charset=utf-8' $respBytes @{ 'Content-Disposition' = $disp; 'X-Feedback-Id' = $stamp }
+      return
+    }
+    if ($path -eq '/admin' -or $path -eq '/admin/feedback') {
+      $query = ''
+      if ($req.ContainsKey('Url')) {
+        $qp = $req.Url.Split('?', 2)
+        if ($qp.Length -gt 1) { $query = $qp[1] }
+      }
+      $token = ''
+      foreach ($pair in $query.Split('&')) {
+        if ([string]::IsNullOrWhiteSpace($pair)) { continue }
+        $kv = $pair.Split('=', 2)
+        if ([Uri]::UnescapeDataString($kv[0]) -eq 'token' -and $kv.Length -gt 1) {
+          $token = [Uri]::UnescapeDataString($kv[1].Replace('+', ' '))
+        }
+      }
+      if ($path -eq '/admin' -and [string]::IsNullOrEmpty($token)) {
+        $form = '<!doctype html><meta charset="utf-8"><title>MCL 反馈管理</title><style>body{font-family:Microsoft YaHei;background:#0b1020;color:#e8eefc;padding:40px}input{padding:10px;width:360px;border-radius:8px;border:1px solid #31406a;background:#0d1429;color:#e8eefc}button{padding:10px 18px;border-radius:8px;border:0;background:#4f8cff;color:#fff;font-weight:700}</style><h1>MCL 反馈管理</h1><p>输入 admin token 查看 Win10 上的 BUG反馈 记录。</p><form method="get" action="/admin/feedback"><input name="token" placeholder="admin token"><button>查看反馈</button></form>'
+        Send-Text $stream 200 $form 'text/html; charset=utf-8' @{}
+        return
+      }
+      if ([string]::IsNullOrEmpty($AdminToken) -or $token -ne $AdminToken) {
+        Send-Text $stream 403 'forbidden: invalid admin token' 'text/plain; charset=utf-8' @{}
+        Log ('admin denied from ' + $client.Client.RemoteEndPoint.ToString())
+        return
+      }
+      $files = @(Get-ChildItem $FbDir -Filter 'BUG反馈_*.txt' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 200)
+      $html = '<!doctype html><meta charset="utf-8"><title>MCL 反馈记录</title><style>body{font-family:Microsoft YaHei;background:#0b1020;color:#e8eefc;padding:32px;max-width:1000px;margin:auto}h1{color:#8fb6ff}h2{font-size:15px;color:#b9c8ea;margin-top:26px;border-top:1px solid #27345c;padding-top:14px}pre{white-space:pre-wrap;background:#121a33;border:1px solid #27345c;border-radius:10px;padding:14px;line-height:1.6}a{color:#4f8cff}</style><h1>MCL 反馈记录</h1><p>共 ' + $files.Count + ' 条 · <a href="/">返回官网</a></p>'
+      if ($files.Count -eq 0) { $html += '<p>暂无反馈。</p>' }
+      foreach ($f in $files) {
+        $content = ''
+        try { $content = [IO.File]::ReadAllText($f.FullName, [Text.Encoding]::UTF8) } catch {}
+        $html += '<h2>' + [System.Net.WebUtility]::HtmlEncode($f.Name) + '</h2><pre>' + [System.Net.WebUtility]::HtmlEncode($content) + '</pre>'
+      }
+      Send-Text $stream 200 $html 'text/html; charset=utf-8' @{}
+      Log ('admin viewed ' + $files.Count + ' feedback files')
       return
     }
     if ($path -eq '/favicon.ico') { Send-Response $stream 204 'image/x-icon' ([byte[]]@()) @{}; return }

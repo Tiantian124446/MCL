@@ -1,6 +1,6 @@
 {
     "version":  "1.5.1",
-    "updated":  "2026-11-22 00:53",
+    "updated":  "2026-11-22 01:08",
     "file":  "MCLauncher.exe",
     "notes":  "v1.5.1：存档备份/删除改用 Win32 SHFileOperation，exe 从 3.6MB 降至约 1.36MB；功能与 v1.5.0 一致，备份/删除已实测通过。"
 }
