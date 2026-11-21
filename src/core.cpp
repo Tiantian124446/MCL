@@ -1,4 +1,4 @@
-﻿// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
 //  core.cpp  -  Minecraft 启动器核心实现
 // ---------------------------------------------------------------------------
 #include "core.h"
@@ -474,6 +474,26 @@ bool Launcher::install(const VersionInfo& vi, std::wstring& err) {
             }
             continue;
         }
+        {
+            std::string n = lib.get("name").asString();
+            if (n.find(":natives-windows") != std::string::npos &&
+                n.find("arm64") == std::string::npos && n.find("-x86") == std::string::npos) {
+                const mjson::Value& art = dls.get("artifact");
+                std::string path = art.get("path").asString();
+                std::string url = art.get("url").asString();
+                if (!path.empty() && !url.empty()) {
+                    std::wstring local = joinPath(libRoot, utf8ToWide(replaceAll(path, "/", "\\")));
+                    DlItem it;
+                    it.url = mirrorUrl(url);
+                    it.fallback = utf8ToWide(url);
+                    it.local = local;
+                    it.size = (unsigned long long)art.get("size").asNumber();
+                    libItems.push_back(it);
+                    nativeJars.push_back(std::make_pair(url, local));
+                }
+                continue;
+            }
+        }
 
         const mjson::Value& art = dls.get("artifact");
         std::string path, url;
@@ -596,6 +616,36 @@ bool Launcher::install(const VersionInfo& vi, std::wstring& err) {
     if (!tick(95, L"解压本地库...")) { err = L"已取消"; return false; }
 
     std::wstring nativesDir = joinPath(vdir, L"natives");
+    if (!pathExists(joinPath(nativesDir, L"lwjgl.dll"))) {
+        createDirs(nativesDir);
+        const mjson::Value& nlibs = root.get("libraries");
+        for (size_t i = 0; i < nlibs.size(); ++i) {
+            const mjson::Value& lib = nlibs.at(i);
+            if (!ruleAllows(lib.get("rules"))) continue;
+            std::string path;
+            if (lib.has("natives")) {
+                std::string key = lib.get("natives").get("windows").asString();
+                if (key.empty()) continue;
+                path = lib.get("downloads").get("classifiers").get(key).get("path").asString();
+            } else {
+                std::string n = lib.get("name").asString();
+                if (n.find(":natives-windows") == std::string::npos ||
+                    n.find("arm64") != std::string::npos || n.find("-x86") != std::string::npos) continue;
+                path = lib.get("downloads").get("artifact").get("path").asString();
+            }
+            if (path.empty()) continue;
+            std::wstring jar = joinPath(libRoot, utf8ToWide(replaceAll(path, "/", "\\")));
+            if (!pathExists(jar)) continue;
+            runAndWait(L"tar.exe -xf \"" + jar + L"\" -C \"" + nativesDir + L"\"");
+        }
+        if (!pathExists(joinPath(nativesDir, L"lwjgl.dll"))) {
+            std::wstring pid = utf8ToWide(root.get("inheritsFrom").asString());
+            if (!pid.empty()) {
+                std::wstring parentNatives = joinPath(joinPath(joinPath(opt.gameDir, L"versions"), pid), L"natives");
+                if (pathExists(joinPath(parentNatives, L"lwjgl.dll"))) nativesDir = parentNatives;
+            }
+        }
+    }
     if (!nativeJars.empty()) {
         createDirs(nativesDir);
         for (size_t i = 0; i < nativeJars.size(); ++i) {
@@ -614,6 +664,56 @@ bool Launcher::install(const VersionInfo& vi, std::wstring& err) {
 // ---------------------------------------------------------------------------
 //  启动游戏
 // ---------------------------------------------------------------------------
+void jsonSetField(mjson::Value& obj, const std::string& key, const mjson::Value& val) {
+    for (auto& kv : obj.obj) {
+        if (kv.first == key) { kv.second = val; return; }
+    }
+    obj.obj.push_back({ key, val });
+}
+
+void mergeInheritedVersion(const mjson::Value& parent, mjson::Value& child) {
+    const char* scalars[] = { "mainClass", "assetIndex", "assets", "downloads", "logging", "javaVersion", "complianceLevel" };
+    for (const char* k : scalars) {
+        const mjson::Value& cv = child.get(k);
+        bool empty = !child.has(k) || cv.isNull() ||
+                     (cv.isObject() && cv.size() == 0) ||
+                     (cv.isString() && cv.asString().empty());
+        if (empty && parent.has(k)) jsonSetField(child, k, parent.get(k));
+    }
+    if (child.get("type").asString().empty() && parent.has("type")) jsonSetField(child, "type", parent.get("type"));
+    if (child.get("releaseTime").asString().empty() && parent.has("releaseTime"))
+        jsonSetField(child, "releaseTime", parent.get("releaseTime"));
+
+    mjson::Value libs;
+    libs.type = mjson::Value::Type::Array;
+    const mjson::Value& pl = parent.get("libraries");
+    for (size_t i = 0; i < pl.size(); ++i) libs.arr.push_back(pl.at(i));
+    const mjson::Value& cl = child.get("libraries");
+    for (size_t i = 0; i < cl.size(); ++i) libs.arr.push_back(cl.at(i));
+    jsonSetField(child, "libraries", libs);
+
+    if (parent.has("arguments") || child.has("arguments")) {
+        mjson::Value args;
+        args.type = mjson::Value::Type::Object;
+        const char* keys[] = { "jvm", "game" };
+        for (const char* k : keys) {
+            mjson::Value arr;
+            arr.type = mjson::Value::Type::Array;
+            if (parent.has("arguments")) {
+                const mjson::Value& pa = parent.get("arguments").get(k);
+                for (size_t i = 0; i < pa.size(); ++i) arr.arr.push_back(pa.at(i));
+            }
+            if (child.has("arguments")) {
+                const mjson::Value& ca = child.get("arguments").get(k);
+                for (size_t i = 0; i < ca.size(); ++i) arr.arr.push_back(ca.at(i));
+            }
+            if (!arr.arr.empty()) args.obj.push_back({ k, arr });
+        }
+        if (!args.obj.empty()) jsonSetField(child, "arguments", args);
+    }
+    if (child.get("minecraftArguments").asString().empty() && parent.has("minecraftArguments"))
+        jsonSetField(child, "minecraftArguments", parent.get("minecraftArguments"));
+}
 bool Launcher::launch(const std::string& id, std::wstring& err) {
     std::wstring vdir = versionDir(id);
     std::wstring vidW = utf8ToWide(id);
@@ -622,10 +722,30 @@ bool Launcher::launch(const std::string& id, std::wstring& err) {
 
     std::string text;
     if (!readAll(jsonPath, text)) { err = L"未找到版本文件, 请先下载该版本"; return false; }
-    if (!pathExists(jarPath))     { err = L"未找到游戏主程序, 请先下载该版本"; return false; }
 
     mjson::Value root;
     if (!mjson::parse(text, root)) { err = L"版本 JSON 解析失败"; return false; }
+
+    // 继承版本 (Fabric/Forge 等): 合并父版本 JSON, 子版本没有 jar 时使用父版本 jar
+    if (root.has("inheritsFrom")) {
+        std::string parentId = root.get("inheritsFrom").asString();
+        if (!parentId.empty()) {
+            std::wstring parentW = utf8ToWide(parentId);
+            std::wstring parentDir = joinPath(joinPath(opt.gameDir, L"versions"), parentW);
+            std::wstring parentJson = joinPath(parentDir, parentW + L".json");
+            std::string parentText;
+            if (!readAll(parentJson, parentText)) {
+                err = L"父版本 " + parentW + L" 的 JSON 未找到, 请先安装该版本";
+                return false;
+            }
+            mjson::Value parent;
+            if (!mjson::parse(parentText, parent)) { err = L"父版本 JSON 解析失败"; return false; }
+            mergeInheritedVersion(parent, root);
+            std::wstring parentJar = joinPath(parentDir, parentW + L".jar");
+            if (!pathExists(jarPath) && pathExists(parentJar)) jarPath = parentJar;
+        }
+    }
+    if (!pathExists(jarPath)) { err = L"未找到游戏主程序, 请先下载该版本"; return false; }
 
     std::wstring javaExe = opt.javaPath;
     if (javaExe.empty() || !pathExists(javaExe)) {
@@ -640,6 +760,36 @@ bool Launcher::launch(const std::string& id, std::wstring& err) {
 
     std::wstring libRoot    = joinPath(opt.gameDir, L"libraries");
     std::wstring nativesDir = joinPath(vdir, L"natives");
+    if (!pathExists(joinPath(nativesDir, L"lwjgl.dll"))) {
+        createDirs(nativesDir);
+        const mjson::Value& nlibs = root.get("libraries");
+        for (size_t i = 0; i < nlibs.size(); ++i) {
+            const mjson::Value& lib = nlibs.at(i);
+            if (!ruleAllows(lib.get("rules"))) continue;
+            std::string path;
+            if (lib.has("natives")) {
+                std::string key = lib.get("natives").get("windows").asString();
+                if (key.empty()) continue;
+                path = lib.get("downloads").get("classifiers").get(key).get("path").asString();
+            } else {
+                std::string n = lib.get("name").asString();
+                if (n.find(":natives-windows") == std::string::npos ||
+                    n.find("arm64") != std::string::npos || n.find("-x86") != std::string::npos) continue;
+                path = lib.get("downloads").get("artifact").get("path").asString();
+            }
+            if (path.empty()) continue;
+            std::wstring jar = joinPath(libRoot, utf8ToWide(replaceAll(path, "/", "\\")));
+            if (!pathExists(jar)) continue;
+            runAndWait(L"tar.exe -xf \"" + jar + L"\" -C \"" + nativesDir + L"\"");
+        }
+        if (!pathExists(joinPath(nativesDir, L"lwjgl.dll"))) {
+            std::wstring pid = utf8ToWide(root.get("inheritsFrom").asString());
+            if (!pid.empty()) {
+                std::wstring parentNatives = joinPath(joinPath(joinPath(opt.gameDir, L"versions"), pid), L"natives");
+                if (pathExists(joinPath(parentNatives, L"lwjgl.dll"))) nativesDir = parentNatives;
+            }
+        }
+    }
     std::wstring assetsRoot = joinPath(opt.gameDir, L"assets");
     std::wstring uuid       = utf8ToWide(offlineUuid(opt.playerName));
 

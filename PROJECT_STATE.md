@@ -1,15 +1,15 @@
 # MCL 项目状态与运维手册（DSH 主设计）
 
-更新时间：2026-11-22 02:40
+更新时间：2026-11-22 02:53
 
 ## 当前版本
 
-- 启动器 / 服务器：**v1.22.0**
+- 启动器 / 服务器：**v1.23.0**
 - 站点：<http://192.168.3.173:7891>
 - 管理页：<http://192.168.3.173:7891/admin>（token 见 `C:\MCLServer\admin_token.txt`）
 - GitHub：<https://github.com/Tiantian124446/MCL>
-- Release：<https://github.com/Tiantian124446/MCL/releases/tag/v1.22.0>
-- 最新资产 SHA256：`75BF079C0C79140F4C239A1700244A396D183847827F63862268B6C2412637EF`
+- Release：<https://github.com/Tiantian124446/MCL/releases/tag/v1.23.0>
+- 最新资产 SHA256：`4D2E125B97295E3CED11A2D8DD9A2F1ED3CB97445A261463AF93309CE679AF91`
   （站点下载 = GitHub 资产 = 本地构建，均已校验）
 
 ## 关键资产
@@ -37,32 +37,32 @@
 - 管理页：`/admin` 输入 token → 查看/搜索记录；`/admin/feedback.csv?token=…&q=…` 导出 CSV
 - `?feedback=1` / `#feedback` 自动打开反馈弹窗
 
-## 启动器 v1.22.0
+## 启动器 v1.23.0
 
-- 首页：版本选择、昵称、内存滑块、开始游戏、安装/更新、检查更新、官网/反馈
-- **设置校验（v1.22.0）**：
-  - 加载时 Java 路径失效 → 自动检测并写日志
-  - 保存时游戏目录为空/无法创建、Java 路径无效 → 提示并中止
-- 关于页「下载最新版」：下载到 `downloads/`，手动更新
-- 单实例、文件日志（`launcher.log`，4MB 轮转）
+- **核心继承版本（v1.23.0）**：
+  - Fabric/Forge 版本合并父版本 JSON（库、参数、assetIndex、logging、downloads）
+  - 子版本无 jar 时使用父版本 jar
+  - 启动时按 `:natives-windows` 分类解压 LWJGL 等原生库
 - 安装 Fabric / Forge；已安装的非清单版本合并进列表
-- 启动前 Java 检查、版本隔离、账户、Java 扫描、游戏选项、自动备份、版本搜索、模组筛选/批量启用禁用
-- 存档管理：备份、恢复最近备份
-- 联机：服务器列表、一键直连、TCP 测速
-- 资源管理、崩溃分析、诊断信息、模组下载、全屏 F11
+- 首页、账户、Java 扫描、游戏选项、自动备份、版本隔离、启动前 Java 检查
+- 版本列表搜索、模组筛选/批量启用禁用、存档备份/恢复
+- 联机服务器、TCP 测速、资源管理、崩溃分析、诊断信息
+- 单实例、文件日志、下载最新版
+- 关于页：v1.23.0 / 访问官网 / 提交 BUG 反馈 / 导出诊断信息
 
 ## 已安装版本（本机）
 
 - 1.20.1
-- 1.20.1-forge-47.4.28
+- 1.20.1-forge-47.4.28（已实际启动到 Render thread）
 - 1.21.1-Forge
 - 26.4-snapshot-2
-- fabric-loader-0.20.1-1.20.1
+- fabric-loader-0.20.1-1.20.1（已实际启动，出现 Minecraft 1.20.1 进程）
 
 ## 已知问题
 
 - 资源下载（Modrinth）：App 内 WinHTTP 版本请求易挂起；guest API 约 16.6s、CDN TLS 失败；需代理/镜像，暂不发布。
 - 原生 EDIT 自动测试需用 `WM_CHAR`；外部 `SetWindowText` 不触发应用内读取（真实用户输入正常）。
+- Forge 1.20.1 在本次测试环境完成资源图集初始化后进程退出，无 launcher 错误；如需排查可查看 `latest.log` / 显卡环境。
 
 ## 自动反馈闭环
 
