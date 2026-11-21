@@ -43,7 +43,7 @@ static const float SCALE_MIN = 0.60f;
 static const float SCALE_MAX = 4.00f;
 
 // 应用版本与发布服务器（Win10 服务器站点）
-static const wchar_t* kAppVersion = L"1.12.0";
+static const wchar_t* kAppVersion = L"1.13.0";
 static const wchar_t* kServerBase = L"http://192.168.3.173:7891";
 
 static inline Color C(int r, int g, int b, int a = 255) {
@@ -130,6 +130,7 @@ enum {
     BTN_MODMGR_DISABLE_ALL = 901006,
     BTN_JAVA_SCAN          = 901007,
     BTN_ACCOUNT_ADD        = 901008,
+    BTN_AUTO_BACKUP        = 901009,
     BTN_ACCOUNT_USE_BASE   = 903000,   // +列表下标: 使用账户
     BTN_ACCOUNT_DEL_BASE   = 904000,   // +列表下标: 删除账户
     BTN_JAVA_USE_BASE      = 902000,   // +列表下标: 使用该 Java
@@ -492,6 +493,8 @@ private:
     std::wstring javaPath_;
     std::wstring javaInfo_;
     bool         useMirror_ = true;
+    bool autoBackup_ = true;
+    bool autoBackupChecked_ = false;
 
     // ---- 联机页状态 (servers_ 一律在 mtx_ 内读写)
     std::vector<ServerEntry> servers_;
@@ -664,6 +667,7 @@ private:
     void setAllMods(bool enable);        // 全部启用 / 全部禁用
     void scanJavaVersions();             // 扫描常见 Java 安装
     void syncAccountList();              // 确保当前昵称在账户列表
+    void maybeAutoBackup();              // 启动时自动备份存档(每天一次)
     void addAccount();                   // 添加离线账户
     void useAccount(int idx);            // 使用账户
     void deleteAccount(int idx);         // 删除账户
@@ -874,6 +878,7 @@ void MainWindow::loadSettings() {
             else if (k == "player")   playerName_ = utf8ToWide(v);
             else if (k == "memory")   { try { memoryMB_ = std::stoi(v); } catch (...) {} }
             else if (k == "mirror")   useMirror_ = (v == "1");
+            else if (k == "autobackup") autoBackup_ = (v == "1");
             else if (k == "version")  selVersion_ = utf8ToWide(v);
             else if (k == "verCat")   { try { verCat_ = std::stoi(v); } catch (...) { verCat_ = 0; } }
             else if (k == "accounts") {
@@ -924,6 +929,7 @@ void MainWindow::saveSettings() {
     out += "player=" + wideToUtf8(playerName_) + "\r\n";
     out += "memory=" + std::to_string(memoryMB_) + "\r\n";
     out += "mirror=" + std::string(useMirror_ ? "1" : "0") + "\r\n";
+    out += "autobackup=" + std::string(autoBackup_ ? "1" : "0") + "\r\n";
     out += "version=" + wideToUtf8(selVersion_) + "\r\n";
     out += "verCat=" + std::to_string(verCat_) + "\r\n";
     out += "accounts=";
@@ -1766,6 +1772,59 @@ void MainWindow::drawAccounts(Graphics& g, int W, int H) {
     RECT ab = mkRect(add.right - 120, add.top + 28, add.right - 16, add.top + 58);
     drawButton(g, ab, L"添加", BTN_ACCOUNT_ADD, true, true, 12);
 }
+void MainWindow::maybeAutoBackup() {
+    if (!autoBackup_) return;
+    std::wstring saves = joinPath(gameDir_, L"saves");
+    if (!pathExists(saves)) return;
+    std::wstring backups = joinPath(gameDir_, L"backups");
+    unsigned long long newest = 0;
+    {
+        WIN32_FIND_DATAW fd;
+        HANDLE h = FindFirstFileW((backups + L"\\auto_*").c_str(), &fd);
+        if (h != INVALID_HANDLE_VALUE) {
+            do {
+                if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
+                ULARGE_INTEGER t;
+                t.LowPart = fd.ftLastWriteTime.dwLowDateTime;
+                t.HighPart = fd.ftLastWriteTime.dwHighDateTime;
+                if (t.QuadPart > newest) newest = t.QuadPart;
+            } while (FindNextFileW(h, &fd));
+            FindClose(h);
+        }
+    }
+    if (newest > 0) {
+        FILETIME now{};
+        GetSystemTimeAsFileTime(&now);
+        ULARGE_INTEGER n;
+        n.LowPart = now.dwLowDateTime;
+        n.HighPart = now.dwHighDateTime;
+        if (n.QuadPart > newest && n.QuadPart - newest < 24ULL * 60 * 60 * 10000000ULL) return;
+    }
+    std::thread([this, backups, saves]() {
+        createDirs(backups);
+        SYSTEMTIME st{};
+        GetLocalTime(&st);
+        wchar_t ts[32];
+        swprintf(ts, 32, L"auto_%04d%02d%02d_%02d%02d%02d", st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+        std::wstring dest = joinPath(backups, ts);
+        std::wstring from = saves;
+        from.push_back(L'\0');
+        from.push_back(L'\0');
+        std::wstring to = dest;
+        to.push_back(L'\0');
+        to.push_back(L'\0');
+        SHFILEOPSTRUCTW op{};
+        op.wFunc = FO_COPY;
+        op.pFrom = from.c_str();
+        op.pTo = to.c_str();
+        op.fFlags = FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI | FOF_NOCONFIRMMKDIR;
+        int rc = SHFileOperationW(&op);
+        if (rc == 0) pushLog(L"自动备份存档完成: " + dest);
+        else pushLog(L"自动备份存档失败，代码 " + std::to_wstring(rc));
+        dirty_ = true;
+        if (hwnd_) PostMessageW(hwnd_, WM_TIMER, 0, 0);
+    }).detach();
+}
 void MainWindow::drawSettings(Graphics& g, int W, int H) {
     FontFamily ff(L"Microsoft YaHei");
     Font fL(&ff, 12.5f, FontStyleRegular, UnitPixel);
@@ -1827,6 +1886,20 @@ void MainWindow::drawSettings(Graphics& g, int W, int H) {
     };
     radio(mkRect(c4.left + 100, c4.top + 4, c4.left + 300, c4.bottom), L"BMCLAPI 国内镜像（推荐）", useMirror_, BTN_MIRROR_BMCL);
     radio(mkRect(c4.left + 320, c4.top + 4, c4.left + 520, c4.bottom), L"Mojang 官方源", !useMirror_, BTN_MIRROR_OFFICIAL);
+    {
+        bool hover = (hoverId_ == BTN_AUTO_BACKUP);
+        RECT sq = mkRect(c4.left + 540, c4.top + 14, c4.left + 558, c4.top + 32);
+        fillRound(g, sq, 4, autoBackup_ ? kAccent : kWhite);
+        strokeRound(g, sq, 4, autoBackup_ ? kAccent : (hover ? C(160, 165, 172) : C(190, 194, 200)));
+        if (autoBackup_) {
+            Pen p(kWhite, 2.0f);
+            g.DrawLine(&p, (float)(sq.left + 4), (float)(sq.top + 10), (float)(sq.left + 8), (float)(sq.top + 14));
+            g.DrawLine(&p, (float)(sq.left + 8), (float)(sq.top + 14), (float)(sq.left + 14), (float)(sq.top + 6));
+        }
+        RECT tr = mkRect(sq.right + 8, c4.top, c4.left + 750, c4.bottom);
+        drawText(g, L"自动备份存档", fV, kText, tr, 0);
+        hits_.push_back({ mkRect(c4.left + 540, c4.top + 4, c4.left + 750, c4.bottom), BTN_AUTO_BACKUP });
+    }
 
     // 保存
     int by = y4 + 64 + 16;
@@ -2688,6 +2761,10 @@ void MainWindow::onMouseWheel(int delta) {
 }
 
 void MainWindow::onTimer() {
+    if (!autoBackupChecked_) {
+        autoBackupChecked_ = true;
+        maybeAutoBackup();
+    }
     if (dirty_.exchange(false)) {
         InvalidateRect(hwnd_, nullptr, FALSE);
     }
@@ -3095,6 +3172,13 @@ void MainWindow::onCommand(int id) {
         MessageBoxW(hwnd_, L"设置已保存。", L"提示", MB_ICONINFORMATION);
         break;
     }
+
+    case BTN_AUTO_BACKUP:
+        autoBackup_ = !autoBackup_;
+        saveSettings();
+        pushLog(autoBackup_ ? L"已开启启动时自动备份存档" : L"已关闭启动时自动备份存档");
+        dirty_ = true;
+        break;
 
     case BTN_FULLSCREEN:
         toggleFullscreen();
