@@ -68,11 +68,31 @@ switch ($Action.ToLowerInvariant()) {
       git add -A
       git commit -m $Message 2>&1 | Out-Null
       $url = "https://$token@github.com/$User/$Name.git"
+      $oldEap = $ErrorActionPreference
+      $ErrorActionPreference = 'Continue'
       $out = git -c credential.helper= push $url HEAD:main 2>&1
+      $ErrorActionPreference = $oldEap
       $text = ($out | Out-String)
       $text = $text.Replace($token, '***')
       $text
     } finally { Pop-Location }
+  }
+  'releaseinfo' {
+    $r = Invoke-GH 'GET' "$api/repos/$User/$Name/releases/tags/$Tag"
+    [pscustomobject]@{ tag = $r.tag_name; upload_url = $r.upload_url; html_url = $r.html_url; assets = @($r.assets).Count } | ConvertTo-Json
+  }
+  'uploadasset' {
+    $r = Invoke-GH 'GET' "$api/repos/$User/$Name/releases/tags/$Tag"
+    $uploadUrl = [string]$r.upload_url
+    $uploadUrl = $uploadUrl -replace '\{.*$', ''
+    $assetName = 'MCLauncher_v' + $Tag.TrimStart('v') + '.exe'
+    $u = $uploadUrl + '?name=' + $assetName
+    Write-Host "uploading to $u"
+    $wc = New-Object System.Net.WebClient
+    $wc.Headers.Add('Authorization', "token $token")
+    $wc.Headers.Add('User-Agent', 'DSH-MCL')
+    $wc.UploadFile($u, 'POST', $Asset) | Out-Null
+    "asset uploaded: $assetName"
   }
   'release' {
     $release = $null

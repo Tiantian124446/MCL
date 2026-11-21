@@ -23,3 +23,9 @@ _tmp_detail.json
 mcl_settings.txt
 mcl_servers*.txt
 src/main_*.cpp
+
+tools/vm.env
+tools/test_vmrun.bat
+whoami_groups.txt
+vmrun_test.txt
+

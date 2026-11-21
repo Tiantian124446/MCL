@@ -16,7 +16,7 @@
 
 - VM：`E:\文件\Virtual Machines\Windows 10 x64\Windows 10 x64.vmx`（Win10 Education 10240，2 vCPU / 4.3GB）
 - Guest IP：`192.168.3.173`（桥接），站点：`http://192.168.3.173:7891`
-- 账户：`ThinkBook`（管理员组），当前**未设密码**（登录自动进入桌面）
+- 账户：`ThinkBook`（管理员组），密码/自动登录信息在 `E:\MCL\tools\vm.env`（**不提交**）
 - 服务器目录：`C:\MCLServer`，服务脚本 `server.ps1`，日志 `C:\MCLServer\logs\server.log`
 - 计划任务：`MCLServer`（登录时启动，最高权限）、`MCLServerWatchdog`（每 5 分钟）
 - 防火墙规则：`MCL Server 7891`（TCP 入站 7891）
@@ -35,7 +35,13 @@
 - `POST /feedback`：保存 `C:\MCLServer\feedback\BUG反馈_*.txt` 与 `BUG反馈.txt`，并 POST 到主机 8098
 - 当前版本：1.0.0；`version.json` 控制版本、更新时间、说明
 
-## 已知问题 / 下一步
+## 已完成的自动化（2026-11-22 00:00）
+
+- `tools/deploy.ps1`：一键构建 → 更新 version.json → 打包 → vmrun 上传 → 运行 update.ps1 → 校验新版本
+- `tools/gh.ps1`：读取凭据管理器中的 GitHub token，建仓库 / 推送 / 发布 Release
+- DSH 定时任务 `schedule-b741b6d1-da18-4f72-ae33-ee50a2dea856`：每 15 分钟检查 `E:\MCL\feedback\PENDING`，有反馈则自动修复并重新发布
+- GitHub：https://github.com/Tiantian124446/MCL ；Release v1.1.0 资产已验证可下载
+`n## 已知问题 / 下一步
 
 1. 主机反馈副本中文乱码：guest 用 WebClient.UploadString 通知 8098 时编码不一致；guest 自身 txt 与网页响应是正确的。修复：guest 端改用 UTF-8 字节 UploadData，或主机端按 GBK 回退解码。
 2. 启动器 UI/功能需要按 PCL2 对齐，并重新构建发布。
