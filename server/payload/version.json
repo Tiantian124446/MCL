@@ -1,6 +1,6 @@
 {
-    "version":  "1.5.0",
-    "updated":  "2026-11-22 00:44",
+    "version":  "1.5.1",
+    "updated":  "2026-11-22 00:53",
     "file":  "MCLauncher.exe",
-    "notes":  "v1.5.0：新增「存档管理」页，列出 saves 下存档的名称/大小/最后修改，支持备份到 backups、删除（二次确认）、打开存档目录、刷新与打开 backups；存档备份已验证。"
+    "notes":  "v1.5.1：存档备份/删除改用 Win32 SHFileOperation，exe 从 3.6MB 降至约 1.36MB；功能与 v1.5.0 一致，备份/删除已实测通过。"
 }

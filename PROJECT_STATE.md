@@ -1,20 +1,20 @@
 # MCL 项目状态与运维手册（DSH 主设计）
 
-更新时间：2026-11-22 00:50
+更新时间：2026-11-22 00:55
 
 ## 当前版本
 
-- 启动器 / 服务器：**v1.5.0**
+- 启动器 / 服务器：**v1.5.1**
 - 站点：<http://192.168.3.173:7891>
 - GitHub：<https://github.com/Tiantian124446/MCL>
-- Release：<https://github.com/Tiantian124446/MCL/releases/tag/v1.5.0>
-- 最新资产 SHA256：`9901481E80FF6B3B4E3F13AA2991D5F0E3666FD18D9DAD9BFE64ECC50681FB23`
+- Release：<https://github.com/Tiantian124446/MCL/releases/tag/v1.5.1>
+- 最新资产 SHA256：`DD983221655F4093549EC84B813CC9FC0BACC632401F1A2DEC6DA8553A0F64A1`
   （站点下载 = GitHub 资产 = 本地构建，均已校验）
 
 ## 关键资产
 
 - 源码：`E:\MCL\src`（C++17 / Win32 / GDI+），构建 `build.ps1`
-- 发布包：`E:\MCL\server\payload` → `E:\MCL\server\stage\package.zip`
+- 发布包：`E:\MCL\server\payload` → `E:\MCL\server\stage\package.zip`（约 423 KB）
 - 一键部署：`E:\MCL\tools\deploy.ps1 [-Version x.y.z] [-Notes ...]`
 - GitHub 工具：`E:\MCL\tools\gh.ps1`（whoami / ensureRepo / push / release / syncasset）
 - 主机反馈接收：`http://192.168.3.155:8098/feedback` → `E:\MCL\feedback`
@@ -35,19 +35,19 @@
 - 反馈限流：同 IP 60 秒 1 条（429 + `Retry-After`），请求体 > 20KB 返回 413
 - `?feedback=1` / `#feedback` 自动打开反馈弹窗
 
-## 启动器 v1.5.0
+## 启动器 v1.5.1
 
 - 首页：版本选择、昵称、内存滑块、开始游戏、安装/更新、检查更新、官网/反馈
 - 资源管理（v1.2.0）：8 类资源计数 + 打开文件夹
 - 崩溃分析（v1.3.0）：`crash-reports` / `latest.log`，F9，识别内存/Java/模组/OpenGL 等
 - 模组管理（v1.4.0）：`.jar` / `.jar.disabled` 列表、启用/禁用、删除、刷新
-- **存档管理（v1.5.0）**：
-  - 扫描 `saves`，显示名称/大小/最后修改日期，汇总数量与总大小
-  - 备份到 `backups/saves_<名称>_<时间戳>`（递归复制，已验证）
+- 存档管理（v1.5.0 / v1.5.1）：
+  - 扫描 `saves`，显示名称/大小/最后修改日期
+  - 备份到 `backups/saves_<名称>_<时间戳>`
   - 删除（二次确认）、打开存档目录、刷新、打开 backups
-  - 长列表滚轮
+  - v1.5.1 起备份/删除使用 Win32 `SHFileOperation`，exe 从 3.6MB 降至 **1.36MB**
 - 版本列表（分类/安装/删除）、游戏设置、模组下载（MC百科/Modrinth）、联机、全屏 F11
-- 关于页：v1.5.0 / 访问官网 / 提交 BUG 反馈（直达 `/?feedback=1`）
+- 关于页：v1.5.1 / 访问官网 / 提交 BUG 反馈（直达 `/?feedback=1`）
 
 ## 自动反馈闭环
 
@@ -60,7 +60,7 @@
 
 - DSH：主设计 / 实现 / 发布
 - 豆包：测试评审（云端无法访问私有 LAN IP，结论有网络局限；无认证/限流建议已记录）
-- Marvis：浏览器集成式 AI 助手，无独立聊天窗口；需从其浏览器侧边栏唤起，评审留待下一轮
+- Marvis：浏览器集成式 AI 助手，本机有 `MarvisAgent`/`MarvisHost`/浏览器扩展宿主；无独立聊天窗口，需从浏览器侧边栏唤起，评审留待下一轮
 - 记录：`docs/collaboration.md`
 
 ## 待办

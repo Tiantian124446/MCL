@@ -23,7 +23,7 @@
 #include <thread>
 #include <vector>
 #include <algorithm>
-#include <filesystem>
+#include <shellapi.h>
 
 using namespace Gdiplus;
 
@@ -40,7 +40,7 @@ static const float SCALE_MIN = 0.60f;
 static const float SCALE_MAX = 4.00f;
 
 // 应用版本与发布服务器（Win10 服务器站点）
-static const wchar_t* kAppVersion = L"1.5.0";
+static const wchar_t* kAppVersion = L"1.5.1";
 static const wchar_t* kServerBase = L"http://192.168.3.173:7891";
 
 static inline Color C(int r, int g, int b, int a = 255) {
@@ -1945,10 +1945,16 @@ void MainWindow::backupSave(int idx) {
     wchar_t stamp[64];
     swprintf(stamp, 64, L"%04d%02d%02d_%02d%02d%02d", st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
     std::wstring dst = joinPath(backups, L"saves_" + safeName(e.name) + L"_" + stamp);
-    std::error_code ec;
-    std::filesystem::copy(e.path, dst, std::filesystem::copy_options::recursive | std::filesystem::copy_options::overwrite_existing, ec);
-    if (ec) {
-        MessageBoxW(hwnd_, (L"备份失败：" + utf8ToWide(ec.message())).c_str(), L"MCL 存档管理", MB_ICONWARNING);
+    std::wstring from = e.path; from.push_back(L'\0'); from.push_back(L'\0');
+    std::wstring to = dst; to.push_back(L'\0'); to.push_back(L'\0');
+    SHFILEOPSTRUCTW op{};
+    op.wFunc = FO_COPY;
+    op.pFrom = from.c_str();
+    op.pTo = to.c_str();
+    op.fFlags = FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT;
+    int rc = SHFileOperationW(&op);
+    if (rc != 0 || op.fAnyOperationsAborted) {
+        MessageBoxW(hwnd_, (L"备份失败（错误码 " + std::to_wstring(rc) + L"）").c_str(), L"MCL 存档管理", MB_ICONWARNING);
         return;
     }
     pushLog(L"已备份存档: " + e.name + L" -> " + dst);
@@ -1960,10 +1966,14 @@ void MainWindow::deleteSave(int idx) {
     SaveEntry e = saves_[idx];
     std::wstring msg = L"确定删除存档？此操作不可撤销。\n\n" + e.name;
     if (MessageBoxW(hwnd_, msg.c_str(), L"MCL 存档管理", MB_YESNO | MB_ICONWARNING) != IDYES) return;
-    std::error_code ec;
-    std::filesystem::remove_all(e.path, ec);
-    if (ec) {
-        MessageBoxW(hwnd_, L"删除失败，存档可能被占用。", L"MCL 存档管理", MB_ICONWARNING);
+    std::wstring from = e.path; from.push_back(L'\0'); from.push_back(L'\0');
+    SHFILEOPSTRUCTW op{};
+    op.wFunc = FO_DELETE;
+    op.pFrom = from.c_str();
+    op.fFlags = FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT;
+    int rc = SHFileOperationW(&op);
+    if (rc != 0 || op.fAnyOperationsAborted) {
+        MessageBoxW(hwnd_, (L"删除失败（错误码 " + std::to_wstring(rc) + L"）").c_str(), L"MCL 存档管理", MB_ICONWARNING);
         return;
     }
     pushLog(L"已删除存档: " + e.name);
