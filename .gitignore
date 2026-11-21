@@ -32,3 +32,6 @@ vmrun_test.txt
 
 诊断信息_*.txt
 resdl_debug.txt
+
+launcher.log
+launcher.log.old

@@ -1,6 +1,6 @@
 {
-    "version":  "1.19.0",
-    "updated":  "2026-11-22 02:28",
+    "version":  "1.20.0",
+    "updated":  "2026-11-22 02:31",
     "file":  "MCLauncher.exe",
-    "notes":  "v1.19.0：版本列表新增「安装 Forge」，按推荐/最新版本下载安装器并 headless 安装；已安装的 Forge 版本自动合并进列表。"
+    "notes":  "v1.20.0：新增单实例保护（重复启动会激活旧窗口并退出）；启动日志同步写入 launcher.log（带时间戳，超过 4MB 自动转 .old）。"
 }

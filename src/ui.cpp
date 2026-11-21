@@ -43,7 +43,7 @@ static const float SCALE_MIN = 0.60f;
 static const float SCALE_MAX = 4.00f;
 
 // 应用版本与发布服务器（Win10 服务器站点）
-static const wchar_t* kAppVersion = L"1.19.0";
+static const wchar_t* kAppVersion = L"1.20.0";
 static const wchar_t* kServerBase = L"http://192.168.3.173:7891";
 
 static inline Color C(int r, int g, int b, int a = 255) {
@@ -996,8 +996,34 @@ void MainWindow::applySettingsToLauncher() {
 }
 
 // ------------------------------ 状态交互 -----------------------------------
+static std::mutex g_logFileMutex;
+static void appendLogFile(const std::wstring& s) {
+    std::lock_guard<std::mutex> lk(g_logFileMutex);
+    std::wstring path = joinPath(exeDir(), L"launcher.log");
+    WIN32_FILE_ATTRIBUTE_DATA fa{};
+    if (GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &fa)) {
+        ULARGE_INTEGER sz;
+        sz.LowPart = fa.nFileSizeLow;
+        sz.HighPart = fa.nFileSizeHigh;
+        if (sz.QuadPart > 4ULL * 1024 * 1024) {
+            MoveFileExW(path.c_str(), (path + L".old").c_str(), MOVEFILE_REPLACE_EXISTING);
+        }
+    }
+    FILE* fp = _wfopen(path.c_str(), L"ab");
+    if (!fp) return;
+    SYSTEMTIME st{};
+    GetLocalTime(&st);
+    wchar_t ts[32];
+    swprintf(ts, 32, L"%04d-%02d-%02d %02d:%02d:%02d", st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+    std::wstring line = L"[" + std::wstring(ts) + L"] " + s + L"\r\n";
+    std::string u8 = wideToUtf8(line);
+    fwrite(u8.data(), 1, u8.size(), fp);
+    fclose(fp);
+}
+
 void MainWindow::pushLogLocked(const std::wstring& s) {
     // 前置条件: 调用方已持有 mtx_。持锁时禁止再调 pushLog(), 否则自锁死。
+    appendLogFile(s);
     logs_.push_back(s);
     if (logs_.size() > 400) logs_.erase(logs_.begin(), logs_.begin() + 100);
     dirty_ = true;

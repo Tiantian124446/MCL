@@ -13,5 +13,22 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nCmdShow) {
         SetDpiAwareFn fn = (SetDpiAwareFn)GetProcAddress(user32, "SetProcessDPIAware");
         if (fn) fn();
     }
-    return runApp(hInst, nCmdShow);
+
+    // 单实例: 已有启动器时激活旧窗口并退出, 避免设置/备份并发写
+    HANDLE instance = CreateMutexW(nullptr, TRUE, L"Local\\MCL_Launcher_SingleInstance");
+    if (instance && GetLastError() == ERROR_ALREADY_EXISTS) {
+        HWND existing = FindWindowW(L"MCLMainWindow", nullptr);
+        if (existing) {
+            ShowWindow(existing, SW_RESTORE);
+            SetForegroundWindow(existing);
+        }
+        CloseHandle(instance);
+        return 0;
+    }
+    int rc = runApp(hInst, nCmdShow);
+    if (instance) {
+        ReleaseMutex(instance);
+        CloseHandle(instance);
+    }
+    return rc;
 }
