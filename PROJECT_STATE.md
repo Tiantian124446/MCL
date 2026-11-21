@@ -1,15 +1,15 @@
 # MCL 项目状态与运维手册（DSH 主设计）
 
-更新时间：2026-11-22 02:53
+更新时间：2026-11-22 02:56
 
 ## 当前版本
 
-- 启动器 / 服务器：**v1.23.0**
+- 启动器 / 服务器：**v1.23.1**
 - 站点：<http://192.168.3.173:7891>
 - 管理页：<http://192.168.3.173:7891/admin>（token 见 `C:\MCLServer\admin_token.txt`）
 - GitHub：<https://github.com/Tiantian124446/MCL>
-- Release：<https://github.com/Tiantian124446/MCL/releases/tag/v1.23.0>
-- 最新资产 SHA256：`4D2E125B97295E3CED11A2D8DD9A2F1ED3CB97445A261463AF93309CE679AF91`
+- Release：<https://github.com/Tiantian124446/MCL/releases/tag/v1.23.1>
+- 最新资产 SHA256：`4C6A8FC860719614954D9F104FFB90904160D2BAD9821754FEEB1881A057B960`
   （站点下载 = GitHub 资产 = 本地构建，均已校验）
 
 ## 关键资产
@@ -42,13 +42,13 @@
 - **核心继承版本（v1.23.0）**：
   - Fabric/Forge 版本合并父版本 JSON（库、参数、assetIndex、logging、downloads）
   - 子版本无 jar 时使用父版本 jar
-  - 启动时按 `:natives-windows` 分类解压 LWJGL 等原生库
+  - 启动时按 `:natives-windows` 分类解压 LWJGL 等原生库，并把 DLL 扁平化到 `natives` 根目录
 - 安装 Fabric / Forge；已安装的非清单版本合并进列表
 - 首页、账户、Java 扫描、游戏选项、自动备份、版本隔离、启动前 Java 检查
 - 版本列表搜索、模组筛选/批量启用禁用、存档备份/恢复
 - 联机服务器、TCP 测速、资源管理、崩溃分析、诊断信息
 - 单实例、文件日志、下载最新版
-- 关于页：v1.23.0 / 访问官网 / 提交 BUG 反馈 / 导出诊断信息
+- 关于页：v1.23.1 / 访问官网 / 提交 BUG 反馈 / 导出诊断信息
 
 ## 已安装版本（本机）
 

@@ -1,6 +1,6 @@
 {
-    "version":  "1.23.0",
-    "updated":  "2026-11-22 02:50",
+    "version":  "1.23.1",
+    "updated":  "2026-11-22 02:55",
     "file":  "MCLauncher.exe",
-    "notes":  "v1.23.0：核心支持继承版本（Fabric/Forge）——合并父版本 JSON、父 jar、参数与依赖库；启动时按 natives-windows 分类解压本地库，修复 LWJGL 原生库缺失。"
+    "notes":  "v1.23.1：native 解压后把 DLL 扁平化到 natives 根目录，确保 LWJGL/GLFW 能按 java.library.path 找到；Fabric 1.20.1 已实测启动出 Minecraft 进程。"
 }

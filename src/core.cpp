@@ -387,6 +387,8 @@ std::vector<std::string> Launcher::listInstalled() const {
 // ---------------------------------------------------------------------------
 //  安装(下载)一个版本
 // ---------------------------------------------------------------------------
+void flattenDlls(const std::wstring& dir, const std::wstring& root);
+
 bool Launcher::install(const VersionInfo& vi, std::wstring& err) {
     createDirs(opt.gameDir);
     std::wstring vdir = versionDir(vi.id);
@@ -646,6 +648,7 @@ bool Launcher::install(const VersionInfo& vi, std::wstring& err) {
             }
         }
     }
+    flattenDlls(nativesDir, nativesDir);
     if (!nativeJars.empty()) {
         createDirs(nativesDir);
         for (size_t i = 0; i < nativeJars.size(); ++i) {
@@ -713,6 +716,25 @@ void mergeInheritedVersion(const mjson::Value& parent, mjson::Value& child) {
     }
     if (child.get("minecraftArguments").asString().empty() && parent.has("minecraftArguments"))
         jsonSetField(child, "minecraftArguments", parent.get("minecraftArguments"));
+}
+void flattenDlls(const std::wstring& dir, const std::wstring& root) {
+    WIN32_FIND_DATAW fd;
+    HANDLE h = FindFirstFileW((dir + L"\\*").c_str(), &fd);
+    if (h == INVALID_HANDLE_VALUE) return;
+    do {
+        if (wcscmp(fd.cFileName, L".") == 0 || wcscmp(fd.cFileName, L"..") == 0) continue;
+        std::wstring p = dir + L"\\" + fd.cFileName;
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+            flattenDlls(p, root);
+        } else {
+            size_t n = wcslen(fd.cFileName);
+            if (n > 4 && _wcsicmp(fd.cFileName + n - 4, L".dll") == 0) {
+                std::wstring dst = root + L"\\" + fd.cFileName;
+                if (_wcsicmp(p.c_str(), dst.c_str()) != 0) CopyFileW(p.c_str(), dst.c_str(), FALSE);
+            }
+        }
+    } while (FindNextFileW(h, &fd));
+    FindClose(h);
 }
 bool Launcher::launch(const std::string& id, std::wstring& err) {
     std::wstring vdir = versionDir(id);
@@ -790,6 +812,7 @@ bool Launcher::launch(const std::string& id, std::wstring& err) {
             }
         }
     }
+    flattenDlls(nativesDir, nativesDir);
     std::wstring assetsRoot = joinPath(opt.gameDir, L"assets");
     std::wstring uuid       = utf8ToWide(offlineUuid(opt.playerName));
 
