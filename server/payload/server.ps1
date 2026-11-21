@@ -9,6 +9,7 @@ $Port = 7891
 $HostWatcher = 'http://192.168.3.155:8098/feedback'
 foreach ($d in @($WebDir, $DlDir, $FbDir, $LogDir)) { if (-not (Test-Path $d)) { New-Item -ItemType Directory -Path $d -Force | Out-Null } }
 $LogFile = Join-Path $LogDir 'server.log'
+$script:LastFb = @{}
 
 function Log([string]$msg) {
   $line = ('[{0}] {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $msg)
@@ -169,6 +170,24 @@ function Handle-Request($client) {
       if ($parsed.ContainsKey('feedback')) { $feedback = $parsed['feedback'] }
       $contact = ''
       if ($parsed.ContainsKey('contact')) { $contact = $parsed['contact'] }
+      $ip = $client.Client.RemoteEndPoint.Address.ToString()
+      $now = Get-Date
+      if ($script:LastFb.ContainsKey($ip)) {
+        $age = ($now - $script:LastFb[$ip]).TotalSeconds
+        if ($age -lt 60) {
+          Send-Text $stream 429 ('提交太频繁，请 ' + [int](60 - $age) + ' 秒后再试。') 'text/plain; charset=utf-8' @{ 'Retry-After' = '60' }
+          return
+        }
+      }
+      $script:LastFb[$ip] = $now
+      if ($script:LastFb.Count -gt 500) {
+        $cut = $now.AddMinutes(-10)
+        foreach ($k in @($script:LastFb.Keys)) { if ($script:LastFb[$k] -lt $cut) { $script:LastFb.Remove($k) } }
+      }
+      if ($bodyText.Length -gt 20000) {
+        Send-Text $stream 413 '反馈内容过长' 'text/plain; charset=utf-8' @{}
+        return
+      }
       if ([string]::IsNullOrWhiteSpace($feedback)) { Send-Text $stream 400 '反馈内容不能为空' 'text/plain; charset=utf-8' @{}; return }
       $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
       $title = 'BUG反馈'

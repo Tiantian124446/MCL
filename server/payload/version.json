@@ -1,6 +1,6 @@
 {
     "version":  "1.4.0",
-    "updated":  "2026-11-22 00:36",
+    "updated":  "2026-11-22 00:40",
     "file":  "MCLauncher.exe",
     "notes":  "v1.4.0：新增「模组管理」页，列出 mods 下的已安装模组，支持启用/禁用（.jar ↔ .jar.disabled）、删除、刷新、打开 mods 文件夹，并显示启用/禁用数量。"
 }
