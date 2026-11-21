@@ -1,15 +1,15 @@
 # MCL 项目状态与运维手册（DSH 主设计）
 
-更新时间：2026-11-22 02:23
+更新时间：2026-11-22 02:30
 
 ## 当前版本
 
-- 启动器 / 服务器：**v1.18.0**
+- 启动器 / 服务器：**v1.19.0**
 - 站点：<http://192.168.3.173:7891>
 - 管理页：<http://192.168.3.173:7891/admin>（token 见 `C:\MCLServer\admin_token.txt`）
 - GitHub：<https://github.com/Tiantian124446/MCL>
-- Release：<https://github.com/Tiantian124446/MCL/releases/tag/v1.18.0>
-- 最新资产 SHA256：`CD0D8A08CD9CBE84E0D58C0D92F3A16F45BA769D034D77D5BFFC15D28781BD58`
+- Release：<https://github.com/Tiantian124446/MCL/releases/tag/v1.19.0>
+- 最新资产 SHA256：`BEB413C14CEE4E6E38F367B6256807695CC4F0A2AB762314C2995D3BAECFB90C`
   （站点下载 = GitHub 资产 = 本地构建，均已校验）
 
 ## 关键资产
@@ -37,22 +37,22 @@
 - 管理页：`/admin` 输入 token → 查看/搜索记录；`/admin/feedback.csv?token=…&q=…` 导出 CSV
 - `?feedback=1` / `#feedback` 自动打开反馈弹窗
 
-## 启动器 v1.18.0
+## 启动器 v1.19.0
 
 - 首页：版本选择、昵称、内存滑块、开始游戏、安装/更新、检查更新、官网/反馈
-- **安装 Fabric（v1.18.0）**：版本列表工具栏，自动取 loader/安装器并运行，创建 launcher_profiles
-- **已安装版本合并（v1.18.0）**：Forge/Fabric 等不在 Mojang 清单的本地版本显示为「已安装」
+- **安装 Fabric / Forge（v1.18/1.19）**：版本列表工具栏；自动取 loader/安装器、创建 launcher_profiles、headless 安装
+- **已安装版本合并**：Forge/Fabric 等不在 Mojang 清单的本地版本显示为「已安装」
 - 启动前 Java 检查：1.20.5+→21，1.18–1.20.4→17，1.17→16，更早→8
-- 版本隔离：游戏设置开关，独立 mods/saves/资源包/日志/备份
-- 账户、Java 扫描、游戏选项、自动备份、版本搜索、模组筛选/批量启用禁用
+- 版本隔离、账户、Java 扫描、游戏选项、自动备份、版本搜索、模组筛选/批量启用禁用
 - 存档管理：备份、恢复最近备份
 - 联机：服务器列表、一键直连、TCP 测速
 - 资源管理、崩溃分析、诊断信息、模组下载、全屏 F11
-- 关于页：v1.18.0 / 访问官网 / 提交 BUG 反馈 / 导出诊断信息
+- 关于页：v1.19.0 / 访问官网 / 提交 BUG 反馈 / 导出诊断信息
 
 ## 已安装版本（本机）
 
 - 1.20.1
+- 1.20.1-forge-47.4.28（v1.19.0 实测安装）
 - 1.21.1-Forge
 - 26.4-snapshot-2
 - fabric-loader-0.20.1-1.20.1（v1.18.0 实测安装）

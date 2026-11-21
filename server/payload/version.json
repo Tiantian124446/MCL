@@ -1,6 +1,6 @@
 {
-    "version":  "1.18.0",
-    "updated":  "2026-11-22 02:21",
+    "version":  "1.19.0",
+    "updated":  "2026-11-22 02:28",
     "file":  "MCLauncher.exe",
-    "notes":  "v1.18.0：版本列表新增「安装 Fabric」，自动拉取 loader/安装器并运行；已安装的非清单版本（Forge/Fabric）会合并进列表，仅看已安装可见。"
+    "notes":  "v1.19.0：版本列表新增「安装 Forge」，按推荐/最新版本下载安装器并 headless 安装；已安装的 Forge 版本自动合并进列表。"
 }
