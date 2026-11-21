@@ -11,6 +11,7 @@
 - Release：<https://github.com/Tiantian124446/MCL/releases/tag/v1.27.1>
 - 最新资产 SHA256：`F5D4EC1927D0561D2598B14E284ADF01C37C6BEB5A01F8A70E71EB74CC4FD219`
   （站点下载 = GitHub 资产 = 本地构建，均已校验）
+- 验收报告：[docs/acceptance.md](docs/acceptance.md)
 
 ## 关键资产
 
