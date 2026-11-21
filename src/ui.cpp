@@ -43,7 +43,7 @@ static const float SCALE_MIN = 0.60f;
 static const float SCALE_MAX = 4.00f;
 
 // 应用版本与发布服务器（Win10 服务器站点）
-static const wchar_t* kAppVersion = L"1.27.0";
+static const wchar_t* kAppVersion = L"1.27.1";
 static const wchar_t* kServerBase = L"http://192.168.3.173:7891";
 
 static inline Color C(int r, int g, int b, int a = 255) {
@@ -137,6 +137,7 @@ enum {
     BTN_INSTALL_FORGE      = 901016,
     BTN_DOWNLOAD_LATEST    = 901017,
     BTN_RES_WEB_BASE       = 908000,   // +资源卡片下标：Modrinth 搜索
+    BTN_OPEN_LATEST_LOG    = 901022,
     BTN_RESDL_SEARCH       = 901018,
     BTN_RESDL_TYPE_PACK    = 901019,
     BTN_RESDL_TYPE_SHADER  = 901020,
@@ -3368,6 +3369,10 @@ void MainWindow::drawResources(Graphics& g, int W, int H) {
             RECT ra = mkRect(c.left + 136, c.top + 68, c.left + 246, c.top + 98);
             drawButton(g, ra, L"分析最新崩溃", BTN_ANALYZE_CRASH, true, true, 12);
         }
+        if (wcscmp(kResEntries[i].dir, L"logs") == 0) {
+            RECT rl = mkRect(c.left + 136, c.top + 68, c.left + 276, c.top + 98);
+            drawButton(g, rl, L"查看 latest.log", BTN_OPEN_LATEST_LOG, false, true, 11);
+        }
     }
 
     RECT hint = mkRect(cx, H - 36, cx + cw, H - 16);
@@ -3571,6 +3576,15 @@ void MainWindow::onCommand(int id) {
     if (id == BTN_INSTALL_FABRIC) { installFabricAsync(); return; }
     if (id == BTN_INSTALL_FORGE) { installForgeAsync(); return; }
     if (id == BTN_DOWNLOAD_LATEST) { downloadLatestAsync(); return; }
+    if (id == BTN_OPEN_LATEST_LOG) {
+        std::wstring logPath = joinPath(activeGameDir(), L"logs\\latest.log");
+        if (!pathExists(logPath)) {
+            MessageBoxW(hwnd_, L"还没有 latest.log，请先启动一次游戏。", L"MCL 日志", MB_ICONINFORMATION);
+        } else {
+            ShellExecuteW(nullptr, L"open", logPath.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        }
+        return;
+    }
     if (id == BTN_RESDL_SEARCH) { searchResDlAsync(); return; }
     if (id == BTN_RESDL_TYPE_PACK || id == BTN_RESDL_TYPE_SHADER) {
         resDlType_ = (id == BTN_RESDL_TYPE_SHADER) ? 1 : 0;

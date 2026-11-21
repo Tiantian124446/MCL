@@ -1,6 +1,6 @@
 {
-    "version":  "1.27.0",
-    "updated":  "2026-11-22 03:17",
+    "version":  "1.27.1",
+    "updated":  "2026-11-22 03:20",
     "file":  "MCLauncher.exe",
-    "notes":  "v1.27.0：新增「资源下载」页——Modrinth 搜索资源包/光影，显示标题/作者/下载量，一键下载最新文件到 resourcepacks/shaderpacks，带进度与日志。"
+    "notes":  "v1.27.1：资源管理「日志」卡片新增「查看 latest.log」，直接打开当前数据目录的最新日志；12 页导航巡检通过。"
 }
