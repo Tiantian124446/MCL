@@ -43,7 +43,7 @@ static const float SCALE_MIN = 0.60f;
 static const float SCALE_MAX = 4.00f;
 
 // 应用版本与发布服务器（Win10 服务器站点）
-static const wchar_t* kAppVersion = L"1.15.0";
+static const wchar_t* kAppVersion = L"1.16.0";
 static const wchar_t* kServerBase = L"http://192.168.3.173:7891";
 
 static inline Color C(int r, int g, int b, int a = 255) {
@@ -3379,7 +3379,6 @@ void MainWindow::onCommand(int id) {
                     if (idx < 0 || idx >= (int)manifest_.size()) continue;
                     const VersionInfo& v = manifest_[idx];
                     if (!versionInCategory(verCat_, v.type, v.id, v.releaseTime)) continue;
-            if (!versionMatchesSearch(verSearch_, v.id)) continue;
                     if (!versionMatchesSearch(verSearch_, v.id)) continue;
                     bool inst = installedSet_.count(v.id) > 0;
                     if (showInstalledOnly_ && !inst) continue;
@@ -4242,6 +4241,17 @@ void MainWindow::installSelectedAsync() {
     }).detach();
 }
 
+static int requiredJavaForVersion(const std::string& id) {
+    int a = 0, b = 0, c = 0;
+    sscanf(id.c_str(), "%d.%d.%d", &a, &b, &c);
+    if (a <= 1) {
+        if (b > 20 || (b == 20 && c >= 5)) return 21;
+        if (b >= 18) return 17;
+        if (b == 17) return 16;
+        return 8;
+    }
+    return 21;
+}
 void MainWindow::launchSelectedAsync() {
     std::string id;
     if (page_ == 1) {
@@ -4253,7 +4263,6 @@ void MainWindow::launchSelectedAsync() {
                     if (idx < 0 || idx >= (int)manifest_.size()) continue;
                     const VersionInfo& v = manifest_[idx];
                     if (!versionInCategory(verCat_, v.type, v.id, v.releaseTime)) continue;
-            if (!versionMatchesSearch(verSearch_, v.id)) continue;
                     if (!versionMatchesSearch(verSearch_, v.id)) continue;
                     bool inst = installedSet_.count(v.id) > 0;
                     if (showInstalledOnly_ && !inst) continue;
@@ -4270,6 +4279,22 @@ void MainWindow::launchSelectedAsync() {
     if (id.empty()) {
         MessageBoxW(hwnd_, L"请先选择要启动的版本。", L"提示", MB_ICONINFORMATION);
         return;
+    }
+    {
+        int req = requiredJavaForVersion(id);
+        int have = javaPath_.empty() ? 0 : Launcher::queryJavaMajor(javaPath_);
+        if (have == 0) {
+            MessageBoxW(hwnd_, L"未检测到可用的 Java。\n\n请到「游戏设置」点「扫描」，或手动选择 java.exe。",
+                        L"MCL 启动", MB_ICONWARNING);
+            return;
+        }
+        if (have < req) {
+            std::wstring msg = L"版本 " + utf8ToWide(id) + L" 需要 Java " + std::to_wstring(req) +
+                               L"，当前选择的是 Java " + std::to_wstring(have) +
+                               L"。\n\n请到「游戏设置」点「扫描」并选用匹配的 Java。";
+            MessageBoxW(hwnd_, msg.c_str(), L"MCL 启动", MB_ICONWARNING);
+            return;
+        }
     }
     // 读昵称
     wchar_t buf[256] = { 0 };
