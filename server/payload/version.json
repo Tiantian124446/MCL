@@ -1,6 +1,6 @@
 {
-    "version":  "1.26.1",
-    "updated":  "2026-11-22 03:11",
+    "version":  "1.27.0",
+    "updated":  "2026-11-22 03:16",
     "file":  "MCLauncher.exe",
-    "notes":  "v1.26.1：自更新目标版本；用于验证 v1.26.0 的下载→替换→重启流程，功能与 v1.26.0 一致。"
+    "notes":  "v1.27.0：新增「资源下载」页——Modrinth 搜索资源包/光影，显示标题/作者/下载量，一键下载最新文件到 resourcepacks/shaderpacks，带进度与日志。"
 }
