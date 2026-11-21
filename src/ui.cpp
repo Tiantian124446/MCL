@@ -40,7 +40,7 @@ static const float SCALE_MIN = 0.60f;
 static const float SCALE_MAX = 4.00f;
 
 // 应用版本与发布服务器（Win10 服务器站点）
-static const wchar_t* kAppVersion = L"1.10.0";
+static const wchar_t* kAppVersion = L"1.11.0";
 static const wchar_t* kServerBase = L"http://192.168.3.173:7891";
 
 static inline Color C(int r, int g, int b, int a = 255) {
@@ -102,6 +102,7 @@ enum {
     BTN_NAV_RESOURCES,
     BTN_NAV_MODMGR,
     BTN_NAV_SAVES,
+    BTN_NAV_ACCOUNTS,
     BTN_SRV_ADD,             // 新增 / 保存服务器条目
     BTN_SRV_RESET,           // 取消编辑 / 清空表单
     BTN_SRV_IMPORT,          // 从公开清单导入服务器
@@ -124,6 +125,9 @@ enum {
     BTN_MODMGR_ENABLE_ALL  = 901005,
     BTN_MODMGR_DISABLE_ALL = 901006,
     BTN_JAVA_SCAN          = 901007,
+    BTN_ACCOUNT_ADD        = 901008,
+    BTN_ACCOUNT_USE_BASE   = 903000,   // +列表下标: 使用账户
+    BTN_ACCOUNT_DEL_BASE   = 904000,   // +列表下标: 删除账户
     BTN_JAVA_USE_BASE      = 902000,   // +列表下标: 使用该 Java
     BTN_MODMGR_TOGGLE_BASE = 910000,   // +列表下标: 启用/禁用
     BTN_MODMGR_DEL_BASE    = 920000,   // +列表下标: 删除
@@ -141,7 +145,8 @@ enum {
     CTL_MOD_MCVER,
     CTL_SRV_NAME,
     CTL_SRV_HOST,
-    CTL_SRV_PORT
+    CTL_SRV_PORT,
+    CTL_ACCOUNT
 };
 
 struct HitRect {
@@ -477,6 +482,7 @@ private:
 
     std::wstring selVersion_ = L"";
     std::wstring playerName_ = L"Steve";
+    std::vector<std::wstring> accounts_;
     int          memoryMB_ = 0;      // 0 = 未配置, 由 recommendMemoryMB() 决定
     std::wstring gameDir_;
     std::wstring javaPath_;
@@ -591,6 +597,7 @@ private:
     HWND editSrvName_ = nullptr;
     HWND editSrvHost_ = nullptr;
     HWND editSrvPort_ = nullptr;
+    HWND editAccount_ = nullptr;
 
     // 绘制各区域
     void drawSidebar(Graphics& g, int W, int H);
@@ -635,6 +642,7 @@ private:
     void drawResources(Graphics& g, int W, int H);
     void drawModMgr(Graphics& g, int W, int H);
     void drawSaves(Graphics& g, int W, int H);
+    void drawAccounts(Graphics& g, int W, int H);
     void loadServers();
     void saveServers();
     void fillServerForm(int idx);        // 条目载入表单 (idx < 0 表示清空)
@@ -649,6 +657,10 @@ private:
     void deleteInstalledMod(int idx);    // 删除模组
     void setAllMods(bool enable);        // 全部启用 / 全部禁用
     void scanJavaVersions();             // 扫描常见 Java 安装
+    void syncAccountList();              // 确保当前昵称在账户列表
+    void addAccount();                   // 添加离线账户
+    void useAccount(int idx);            // 使用账户
+    void deleteAccount(int idx);         // 删除账户
     void useJavaVersion(int idx);        // 选用扫描到的 Java
     void loadSaves();                    // 扫描 saves 目录
     void backupSave(int idx);            // 备份存档
@@ -799,10 +811,12 @@ bool MainWindow::createWindow(HINSTANCE hInst, int nCmdShow) {
     editSrvName_   = mkEdit(CTL_SRV_NAME);
     editSrvHost_   = mkEdit(CTL_SRV_HOST);
     editSrvPort_   = mkEdit(CTL_SRV_PORT);
-
-    SetWindowTextW(editName_, playerName_.c_str());
+    editAccount_   = mkEdit(CTL_ACCOUNT);
 
     loadSettings();
+    if (accounts_.empty()) accounts_.push_back(playerName_);
+    syncAccountList();
+    SetWindowTextW(editName_, playerName_.c_str());
     loadServers();
     applySettingsToLauncher();
 
@@ -856,6 +870,13 @@ void MainWindow::loadSettings() {
             else if (k == "mirror")   useMirror_ = (v == "1");
             else if (k == "version")  selVersion_ = utf8ToWide(v);
             else if (k == "verCat")   { try { verCat_ = std::stoi(v); } catch (...) { verCat_ = 0; } }
+            else if (k == "accounts") {
+                accounts_.clear();
+                for (auto& n : splitW(utf8ToWide(v), L',')) {
+                    std::wstring t = trimW(n);
+                    if (!t.empty()) accounts_.push_back(t);
+                }
+            }
         }
     }
     if (missing) {
@@ -881,7 +902,14 @@ void MainWindow::loadSettings() {
     }
 }
 
+void MainWindow::syncAccountList() {
+    if (playerName_.empty()) playerName_ = L"Steve";
+    for (auto& a : accounts_) if (a == playerName_) return;
+    accounts_.push_back(playerName_);
+}
+
 void MainWindow::saveSettings() {
+    syncAccountList();
     FILE* fp = _wfopen(settingsPath().c_str(), L"wb");
     if (!fp) return;
     std::string out;
@@ -892,6 +920,12 @@ void MainWindow::saveSettings() {
     out += "mirror=" + std::string(useMirror_ ? "1" : "0") + "\r\n";
     out += "version=" + wideToUtf8(selVersion_) + "\r\n";
     out += "verCat=" + std::to_string(verCat_) + "\r\n";
+    out += "accounts=";
+    for (size_t i = 0; i < accounts_.size(); ++i) {
+        if (i) out += ",";
+        out += wideToUtf8(accounts_[i]);
+    }
+    out += "\r\n";
     fwrite(out.data(), 1, out.size(), fp);
     fclose(fp);
 }
@@ -949,7 +983,7 @@ void MainWindow::layoutControls() {
                                    DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                                    CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Microsoft YaHei");
             HWND all[] = { editName_, editSearch_, editDir_, editJava_, editMem_,
-                           editModSearch_, editModMcVer_, editSrvName_, editSrvHost_, editSrvPort_ };
+                           editModSearch_, editModMcVer_, editSrvName_, editSrvHost_, editSrvPort_, editAccount_ };
             for (HWND e : all) if (e) SendMessageW(e, WM_SETFONT, (WPARAM)nf, TRUE);
             if (uiFont_) DeleteObject(uiFont_);
             uiFont_ = nf;
@@ -960,7 +994,7 @@ void MainWindow::layoutControls() {
     auto hide = [](HWND h) { ShowWindow(h, SW_HIDE); };
     hide(editName_); hide(editSearch_); hide(editDir_); hide(editJava_); hide(editMem_);
     hide(editModSearch_); hide(editModMcVer_);
-    hide(editSrvName_); hide(editSrvHost_); hide(editSrvPort_);
+    hide(editSrvName_); hide(editSrvHost_); hide(editSrvPort_); hide(editAccount_);
 
     int cx = SIDEBAR_W + 24;
     int cw = W - SIDEBAR_W - 48;
@@ -1003,6 +1037,10 @@ void MainWindow::layoutControls() {
         int y = HEADER_H + 16;
         SetWindowPos(editModSearch_, nullptr, S(cx + 64), S(y + 60), S(cw - 500), S(28), SWP_NOZORDER);
         ShowWindow(editModSearch_, SW_SHOW);
+    } else if (page_ == 10) {
+        int addTop = H - 108;
+        SetWindowPos(editAccount_, nullptr, S(cx + 120), S(addTop + 28), S(cw - 300), S(30), SWP_NOZORDER);
+        ShowWindow(editAccount_, SW_SHOW);
     } else if (page_ == 5) {
         int y = HEADER_H + 16;
         int hostX = cx + 264;                 // 与 drawServers 的表单卡片保持一致
@@ -1068,6 +1106,7 @@ void MainWindow::onPaint(HDC hdc) {
         case 6: drawResources(g, W, H); break;
         case 7: drawModMgr(g, W, H); break;
         case 8: drawSaves(g, W, H); break;
+        case 10: drawAccounts(g, W, H); break;
         default: drawAbout(g, W, H); break;
         }
     }
@@ -1145,6 +1184,7 @@ void MainWindow::drawSidebar(Graphics& g, int W, int H) {
         { L"资源管理", BTN_NAV_RESOURCES, 6 },
         { L"模组管理", BTN_NAV_MODMGR, 7 },
         { L"存档管理", BTN_NAV_SAVES, 8 },
+        { L"账户",     BTN_NAV_ACCOUNTS, 10 },
         { L"关于",     BTN_NAV_ABOUT, 3 },
     };
     FontFamily ff(L"Microsoft YaHei");
@@ -1185,6 +1225,7 @@ std::wstring MainWindow::contentTitle() const {
     case 6: return L"资源管理";
     case 7: return L"模组管理";
     case 8: return L"存档管理";
+    case 10: return L"账户";
     default: return L"关于";
     }
 }
@@ -1610,6 +1651,114 @@ void MainWindow::useJavaVersion(int idx) {
     pushLog(L"已切换 Java: " + javaPath_ + L" (Java " + std::to_wstring(jv[idx].major) + L")");
     dirty_ = true;
     InvalidateRect(hwnd_, nullptr, FALSE);
+}
+void MainWindow::addAccount() {
+    wchar_t buf[128] = { 0 };
+    if (editAccount_) GetWindowTextW(editAccount_, buf, 128);
+    std::wstring name = trimW(std::wstring(buf));
+    if (name.empty()) {
+        MessageBoxW(hwnd_, L"请输入账户昵称。", L"账户", MB_ICONINFORMATION);
+        return;
+    }
+    if (name.find(L',') != std::wstring::npos) {
+        MessageBoxW(hwnd_, L"昵称不能包含英文逗号。", L"账户", MB_ICONINFORMATION);
+        return;
+    }
+    if (name.size() > 16) name = name.substr(0, 16);
+    for (auto& a : accounts_) {
+        if (a == name) {
+            useAccount((int)(&a - accounts_.data()));
+            return;
+        }
+    }
+    accounts_.push_back(name);
+    saveSettings();
+    if (editAccount_) SetWindowTextW(editAccount_, L"");
+    pushLog(L"已添加账户: " + name);
+    dirty_ = true;
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+void MainWindow::useAccount(int idx) {
+    if (idx < 0 || idx >= (int)accounts_.size()) return;
+    playerName_ = accounts_[idx];
+    if (editName_) SetWindowTextW(editName_, playerName_.c_str());
+    saveSettings();
+    applySettingsToLauncher();
+    pushLog(L"已切换到账户: " + playerName_);
+    dirty_ = true;
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+void MainWindow::deleteAccount(int idx) {
+    if (idx < 0 || idx >= (int)accounts_.size()) return;
+    if ((int)accounts_.size() <= 1) {
+        MessageBoxW(hwnd_, L"至少保留一个账户。", L"账户", MB_ICONINFORMATION);
+        return;
+    }
+    if (accounts_[idx] == playerName_) {
+        MessageBoxW(hwnd_, L"不能删除当前正在使用的账户，请先切换到其他账户。", L"账户", MB_ICONWARNING);
+        return;
+    }
+    std::wstring name = accounts_[idx];
+    if (MessageBoxW(hwnd_, (L"确定删除账户 " + name + L" 吗？").c_str(), L"删除账户",
+                    MB_ICONWARNING | MB_YESNO) != IDYES) {
+        return;
+    }
+    accounts_.erase(accounts_.begin() + idx);
+    saveSettings();
+    pushLog(L"已删除账户: " + name);
+    dirty_ = true;
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+void MainWindow::drawAccounts(Graphics& g, int W, int H) {
+    FontFamily ff(L"Microsoft YaHei");
+    Font fL(&ff, 12.0f, FontStyleRegular, UnitPixel);
+    Font fB(&ff, 14.0f, FontStyleBold, UnitPixel);
+    Font fD(&ff, 11.5f, FontStyleRegular, UnitPixel);
+
+    int cx = SIDEBAR_W + 24;
+    int cw = W - SIDEBAR_W - 48;
+    int y = HEADER_H + 16;
+
+    int addTop = H - 108;
+    RECT list = mkRect(cx, y, cx + cw, addTop - 12);
+    drawCard(g, list);
+    RECT hd = mkRect(list.left + 16, list.top + 8, list.right - 16, list.top + 34);
+    drawText(g, L"离线账户 · 共 " + std::to_wstring(accounts_.size()) + L" 个", fL, kTextDim, hd, 0);
+    RECT hint = mkRect(list.left + 16, list.top + 30, list.right - 16, list.top + 52);
+    drawText(g, L"「使用」切换当前昵称；昵称用于离线登录，不包含正版验证。", fD, kTextDim, hint, 0);
+
+    int rowH = 48;
+    int top = list.top + 58;
+    int maxRows = (list.bottom - top - 8) / rowH;
+    if (maxRows < 1) maxRows = 1;
+    int show = (int)accounts_.size();
+    if (show > maxRows) show = maxRows;
+    for (int i = 0; i < show; ++i) {
+        RECT row = mkRect(list.left + 12, top + i * rowH, list.right - 12, top + i * rowH + rowH - 6);
+        if (accounts_[i] == playerName_) fillRound(g, row, 7, kSelBg);
+        RECT rn = mkRect(row.left + 12, row.top, row.right - 220, row.bottom);
+        drawText(g, accounts_[i], fB, kText, rn, 0);
+        if (accounts_[i] == playerName_) {
+            RECT rb = mkRect(row.right - 330, row.top + 10, row.right - 270, row.bottom - 8);
+            drawText(g, L"当前", fD, kAccent, rb, 0);
+        }
+        RECT bu = mkRect(row.right - 260, row.top + 8, row.right - 180, row.bottom - 8);
+        drawButton(g, bu, L"使用", BTN_ACCOUNT_USE_BASE + i, false, true, 11);
+        RECT bd = mkRect(row.right - 170, row.top + 8, row.right - 90, row.bottom - 8);
+        drawButton(g, bd, L"删除", BTN_ACCOUNT_DEL_BASE + i, false, accounts_[i] != playerName_, 11);
+    }
+
+    RECT add = mkRect(cx, addTop, cx + cw, H - 16);
+    drawCard(g, add);
+    RECT al = mkRect(add.left + 20, add.top, add.left + 110, add.bottom);
+    drawText(g, L"添加账户", fL, kTextDim, al, 0);
+    RECT ai = mkRect(add.left + 120, add.top + 28, add.right - 140, add.top + 58);
+    fillRound(g, ai, 7, kInputBg);
+    RECT ab = mkRect(add.right - 120, add.top + 28, add.right - 16, add.top + 58);
+    drawButton(g, ab, L"添加", BTN_ACCOUNT_ADD, true, true, 12);
 }
 void MainWindow::drawSettings(Graphics& g, int W, int H) {
     FontFamily ff(L"Microsoft YaHei");
@@ -2637,6 +2786,15 @@ void MainWindow::onCommand(int id) {
         exportDiagnostics();
         return;
     }
+    if (id == BTN_ACCOUNT_ADD) { addAccount(); return; }
+    if (id >= BTN_ACCOUNT_USE_BASE && id < BTN_ACCOUNT_DEL_BASE) {
+        useAccount(id - BTN_ACCOUNT_USE_BASE);
+        return;
+    }
+    if (id >= BTN_ACCOUNT_DEL_BASE && id < BTN_ACCOUNT_DEL_BASE + 1000) {
+        deleteAccount(id - BTN_ACCOUNT_DEL_BASE);
+        return;
+    }
     if (id == BTN_JAVA_SCAN) { scanJavaVersions(); return; }
     if (id >= BTN_JAVA_USE_BASE && id < BTN_JAVA_USE_BASE + 100) {
         useJavaVersion(id - BTN_JAVA_USE_BASE);
@@ -2666,6 +2824,10 @@ void MainWindow::onCommand(int id) {
     // ---- 存档管理页
     case BTN_NAV_SAVES:
         page_ = 8; loadSaves(); layoutControls(); dirty_ = true; break;
+
+    // ---- 账户页
+    case BTN_NAV_ACCOUNTS:
+        page_ = 10; layoutControls(); dirty_ = true; break;
 
     // ---- 模组管理页
     case BTN_NAV_MODMGR:
