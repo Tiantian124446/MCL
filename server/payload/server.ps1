@@ -229,7 +229,7 @@ function Handle-Request($client) {
       Send-Response $stream 200 'text/plain; charset=utf-8' $respBytes @{ 'Content-Disposition' = $disp; 'X-Feedback-Id' = $stamp }
       return
     }
-    if ($path -eq '/admin' -or $path -eq '/admin/feedback') {
+    if ($path -eq '/admin' -or $path -eq '/admin/feedback' -or $path -eq '/admin/feedback.csv') {
       $query = ''
       if ($req.ContainsKey('Url')) {
         $qp = $req.Url.Split('?', 2)
@@ -254,7 +254,23 @@ function Handle-Request($client) {
         return
       }
       $files = @(Get-ChildItem $FbDir -Filter 'BUG反馈_*.txt' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 200)
-      $html = '<!doctype html><meta charset="utf-8"><title>MCL 反馈记录</title><style>body{font-family:Microsoft YaHei;background:#0b1020;color:#e8eefc;padding:32px;max-width:1000px;margin:auto}h1{color:#8fb6ff}h2{font-size:15px;color:#b9c8ea;margin-top:26px;border-top:1px solid #27345c;padding-top:14px}pre{white-space:pre-wrap;background:#121a33;border:1px solid #27345c;border-radius:10px;padding:14px;line-height:1.6}a{color:#4f8cff}</style><h1>MCL 反馈记录</h1><p>共 ' + $files.Count + ' 条 · <a href="/">返回官网</a></p>'
+      if ($path -eq '/admin/feedback.csv') {
+        $sb = New-Object System.Text.StringBuilder
+        [void]$sb.AppendLine('文件名,时间,内容')
+        foreach ($f in $files) {
+          $content = ''
+          try { $content = [IO.File]::ReadAllText($f.FullName, [Text.Encoding]::UTF8) } catch {}
+          $name = $f.Name.Replace('"', '""')
+          $time = $f.LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss')
+          $body = $content.Replace('"', '""')
+          [void]$sb.AppendLine('"' + $name + '","' + $time + '","' + $body + '"')
+        }
+        $csv = [char]0xFEFF + $sb.ToString()
+        Send-Text $stream 200 $csv 'text/csv; charset=utf-8' @{ 'Content-Disposition' = 'attachment; filename="BUG反馈.csv"' }
+        Log ('admin exported csv, files=' + $files.Count)
+        return
+      }
+      $html = '<!doctype html><meta charset="utf-8"><title>MCL 反馈记录</title><style>body{font-family:Microsoft YaHei;background:#0b1020;color:#e8eefc;padding:32px;max-width:1000px;margin:auto}h1{color:#8fb6ff}h2{font-size:15px;color:#b9c8ea;margin-top:26px;border-top:1px solid #27345c;padding-top:14px}pre{white-space:pre-wrap;background:#121a33;border:1px solid #27345c;border-radius:10px;padding:14px;line-height:1.6}a{color:#4f8cff}</style><h1>MCL 反馈记录</h1><p>共 ' + $files.Count + ' 条 · <a href="/">返回官网</a> · <a href="/admin/feedback.csv?token=' + $token + '">导出 CSV</a></p>'
       if ($files.Count -eq 0) { $html += '<p>暂无反馈。</p>' }
       foreach ($f in $files) {
         $content = ''
