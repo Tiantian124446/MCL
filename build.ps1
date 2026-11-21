@@ -9,6 +9,7 @@ try {
         "src\main.cpp" "src\ui.cpp" "src\core.cpp" "src\http.cpp" "src\util.cpp" `
         -lgdiplus -lwinhttp -lcrypt32 -lole32 -loleaut32 -luuid -lshlwapi -ldwmapi -lcomctl32 -lws2_32 -static
     if ($LASTEXITCODE -ne 0) { throw "build failed: $LASTEXITCODE" }
-    Copy-Item "build\MCLauncher.exe" "MCLauncher.exe" -Force
+    try { Copy-Item "build\MCLauncher.exe" "MCLauncher.exe" -Force -ErrorAction Stop }
+    catch { Write-Host "skip copy to root (file in use): $($_.Exception.Message)" }
     Write-Host "build ok: build\MCLauncher.exe"
 } finally { Pop-Location }

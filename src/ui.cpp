@@ -39,7 +39,7 @@ static const float SCALE_MIN = 0.60f;
 static const float SCALE_MAX = 4.00f;
 
 // 应用版本与发布服务器（Win10 服务器站点）
-static const wchar_t* kAppVersion = L"1.1.1";
+static const wchar_t* kAppVersion = L"1.2.0";
 static const wchar_t* kServerBase = L"http://192.168.3.173:7891";
 
 static inline Color C(int r, int g, int b, int a = 255) {
@@ -97,7 +97,8 @@ enum {
     BTN_MODS_OPEN_MR,        // 在浏览器打开 Modrinth 项目页
     BTN_MODS_MR_SEARCH,      // 详情无 Modrinth 链接时, 用 Modrinth 搜索兜底解析
     // ---- 联机页
-    BTN_NAV_SERVERS,         // 侧边栏: 联机
+    BTN_NAV_SERVERS,
+    BTN_NAV_RESOURCES,
     BTN_SRV_ADD,             // 新增 / 保存服务器条目
     BTN_SRV_RESET,           // 取消编辑 / 清空表单
     BTN_SRV_IMPORT,          // 从公开清单导入服务器
@@ -110,7 +111,9 @@ enum {
     BTN_SRV_EDIT_BASE      = 720000,   // +列表下标: 载入到表单编辑
     BTN_SRV_DEL_BASE       = 730000,   // +列表下标: 删除
     BTN_SRV_VIS_BASE       = 750000,   // +列表下标: 切换"显示服务器 / 不显示服务器"
-    BTN_VERCAT_BASE        = 800000,   // +0..4: 版本分类 全部/正式版/快照/远古版/愚人节版
+    BTN_VERCAT_BASE        = 800000,
+    BTN_RES_OPEN_BASE      = 900000,   // +0..7: 资源管理卡片
+    BTN_OPEN_GAMEDIR,   // +0..4: 版本分类 全部/正式版/快照/远古版/愚人节版
     BTN_LIST_BASE = 2000
 };
 
@@ -602,12 +605,14 @@ private:
     // ---- 联机页业务动作
     void openServersPage();
     void drawServers(Graphics& g, int W, int H);
+    void drawResources(Graphics& g, int W, int H);
     void loadServers();
     void saveServers();
     void fillServerForm(int idx);        // 条目载入表单 (idx < 0 表示清空)
     void commitServerForm();             // 表单 -> 新增 / 更新条目 (含校验)
     void deleteServer(int idx);
     void connectServer(int idx);         // 一键启动并直连该服务器
+    void openResourceFolder(int idx);    // 打开资源包/光影/存档等目录
     void toggleServerVisible(int idx);   // 切换"显示服务器 / 不显示服务器"
     void writePublicServers();           // 把"显示"的条目同步到公开清单
     void importPublicServers();          // 从公开清单导入本机没有的服务器
@@ -999,6 +1004,7 @@ void MainWindow::onPaint(HDC hdc) {
         case 2: drawSettings(g, W, H); break;
         case 4: (modDetail_ >= 0) ? drawModDetail(g, W, H) : drawMods(g, W, H); break;
         case 5: drawServers(g, W, H); break;
+        case 6: drawResources(g, W, H); break;
         default: drawAbout(g, W, H); break;
         }
     }
@@ -1073,6 +1079,7 @@ void MainWindow::drawSidebar(Graphics& g, int W, int H) {
         { L"游戏设置", BTN_NAV_SETTINGS, 2 },
         { L"模组下载", BTN_NAV_MODS, 4 },
         { L"联机",     BTN_NAV_SERVERS, 5 },
+        { L"资源管理", BTN_NAV_RESOURCES, 6 },
         { L"关于",     BTN_NAV_ABOUT, 3 },
     };
     FontFamily ff(L"Microsoft YaHei");
@@ -1110,6 +1117,7 @@ std::wstring MainWindow::contentTitle() const {
     case 2: return L"游戏设置";
     case 4: return (modDetail_ >= 0) ? L"模组下载  ·  模组详情" : L"模组下载";
     case 5: return L"联机  ·  服务器列表";
+    case 6: return L"资源管理";
     default: return L"关于";
     }
 }
@@ -1574,6 +1582,103 @@ void MainWindow::drawAbout(Graphics& g, int W, int H) {
     drawButton(g, b2, L"提交 BUG 反馈", BTN_OPEN_FEEDBACK, false, true, 13);
 }
 
+// ------------------------------ 资源管理页 ---------------------------------
+struct ResEntry {
+    const wchar_t* dir;
+    const wchar_t* title;
+    const wchar_t* desc;
+    const wchar_t* filter;
+};
+
+static const ResEntry kResEntries[] = {
+    { L"resourcepacks", L"资源包",   L"材质、音效与界面资源",       L"*" },
+    { L"shaderpacks",   L"光影包",   L"Shaders 光影与渲染配置",     L"*" },
+    { L"saves",         L"存档",     L"单人世界与地图",             L"*" },
+    { L"screenshots",   L"截图",     L"游戏内截图",                 L"*" },
+    { L"mods",          L"模组",     L"Forge / Fabric 模组",        L"*" },
+    { L"logs",          L"日志",     L"latest.log 与调试日志",      L"*" },
+    { L"crash-reports", L"崩溃报告", L"crash-*.txt 崩溃记录",       L"*.txt" },
+    { L"versions",      L"版本",     L"已安装的游戏版本",           L"*" },
+};
+
+static int countDirEntries(const std::wstring& dir, const wchar_t* filter) {
+    int n = 0;
+    WIN32_FIND_DATAW fd;
+    std::wstring pattern = dir + L"\\" + (filter ? filter : L"*");
+    HANDLE h = FindFirstFileW(pattern.c_str(), &fd);
+    if (h == INVALID_HANDLE_VALUE) return 0;
+    do {
+        if (wcscmp(fd.cFileName, L".") != 0 && wcscmp(fd.cFileName, L"..") != 0) n++;
+    } while (FindNextFileW(h, &fd));
+    FindClose(h);
+    return n;
+}
+
+void MainWindow::openResourceFolder(int idx) {
+    int count = (int)(sizeof(kResEntries) / sizeof(kResEntries[0]));
+    if (idx < 0 || idx >= count) return;
+    std::wstring dir = joinPath(gameDir_, kResEntries[idx].dir);
+    if (!pathExists(dir)) createDirs(dir);
+    ShellExecuteW(nullptr, L"open", dir.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+}
+
+void MainWindow::drawResources(Graphics& g, int W, int H) {
+    FontFamily ff(L"Microsoft YaHei");
+    Font fT(&ff, 18.0f, FontStyleBold, UnitPixel);
+    Font fL(&ff, 12.0f, FontStyleRegular, UnitPixel);
+    Font fB(&ff, 16.0f, FontStyleBold, UnitPixel);
+    Font fD(&ff, 12.0f, FontStyleRegular, UnitPixel);
+    Font fC(&ff, 11.0f, FontStyleRegular, UnitPixel);
+
+    int cx = SIDEBAR_W + 24;
+    int cw = W - SIDEBAR_W - 48;
+    int y = HEADER_H + 16;
+
+    // 当前游戏目录
+    RECT info = mkRect(cx, y, cx + cw, y + 58);
+    drawCard(g, info);
+    RECT t1 = mkRect(info.left + 16, info.top + 8, info.right - 140, info.top + 30);
+    drawText(g, L"当前游戏目录", fL, kTextDim, t1, 0);
+    RECT t2 = mkRect(info.left + 16, info.top + 28, info.right - 140, info.top + 50);
+    drawText(g, gameDir_, fD, kText, t2, 0);
+    RECT b0 = mkRect(info.right - 128, info.top + 14, info.right - 16, info.top + 44);
+    drawButton(g, b0, L"打开 .minecraft", BTN_OPEN_GAMEDIR, false, true, 12);
+
+    int gridTop = y + 58 + 14;
+    int gap = 14;
+    int cardW = (cw - gap) / 2;
+    int cardH = 104;
+    int total = (int)(sizeof(kResEntries) / sizeof(kResEntries[0]));
+
+    for (int i = 0; i < total; ++i) {
+        int row = i / 2;
+        int col = i % 2;
+        int x = cx + col * (cardW + gap);
+        int yy = gridTop + row * (cardH + gap);
+        if (yy + cardH > H - 16) break;
+        RECT c = mkRect(x, yy, x + cardW, yy + cardH);
+        drawCard(g, c);
+
+        RECT rt = mkRect(c.left + 16, c.top + 12, c.right - 90, c.top + 36);
+        drawText(g, kResEntries[i].title, fB, kText, rt, 0);
+
+        std::wstring dir = joinPath(gameDir_, kResEntries[i].dir);
+        int n = countDirEntries(dir, kResEntries[i].filter);
+        std::wstring cnt = std::to_wstring(n) + L" 项";
+        RECT rc = mkRect(c.right - 86, c.top + 14, c.right - 16, c.top + 36);
+        drawText(g, cnt, fC, n > 0 ? kAccent : kTextDim, rc, 2);
+
+        RECT rd = mkRect(c.left + 16, c.top + 40, c.right - 16, c.top + 62);
+        drawText(g, kResEntries[i].desc, fD, kTextDim, rd, 0);
+
+        RECT rb = mkRect(c.left + 16, c.top + 68, c.left + 126, c.top + 98);
+        drawButton(g, rb, L"打开文件夹", BTN_RES_OPEN_BASE + i, false, true, 12);
+    }
+
+    RECT hint = mkRect(cx, H - 36, cx + cw, H - 16);
+    drawText(g, L"提示：把资源包 / 光影放入对应文件夹后，在游戏内「选项 → 资源包 / 视频设置」中启用。",
+             fD, kTextDim, hint, 0);
+}
 // ------------------------------ 鼠标 ---------------------------------------
 void MainWindow::onMouseMove(int x, int y) {
     int old = hoverId_;
@@ -1706,6 +1811,15 @@ void MainWindow::onCommand(int id) {
         InvalidateRect(hwnd_, nullptr, FALSE);
         return;
     }
+    if (id >= BTN_RES_OPEN_BASE && id < BTN_RES_OPEN_BASE + 8) {
+        openResourceFolder(id - BTN_RES_OPEN_BASE);
+        return;
+    }
+    if (id == BTN_OPEN_GAMEDIR) {
+        if (!pathExists(gameDir_)) createDirs(gameDir_);
+        ShellExecuteW(nullptr, L"open", gameDir_.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        return;
+    }
     switch (id) {
     case BTN_NAV_HOME:     page_ = 0; layoutControls(); dirty_ = true; break;
     case BTN_NAV_VERSIONS: page_ = 1; layoutControls(); dirty_ = true; break;
@@ -1715,6 +1829,10 @@ void MainWindow::onCommand(int id) {
         SetWindowTextW(editMem_, std::to_wstring(memoryMB_).c_str());
         dirty_ = true; break;
     case BTN_NAV_ABOUT:    page_ = 3; layoutControls(); dirty_ = true; break;
+
+    // ---- 资源管理页
+    case BTN_NAV_RESOURCES:
+        page_ = 6; layoutControls(); dirty_ = true; break;
 
     // ---- 联机页
     case BTN_NAV_SERVERS:
