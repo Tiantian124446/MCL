@@ -1,15 +1,15 @@
 # MCL 项目状态与运维手册（DSH 主设计）
 
-更新时间：2026-11-22 01:57
+更新时间：2026-11-22 02:03
 
 ## 当前版本
 
-- 启动器 / 服务器：**v1.14.0**
+- 启动器 / 服务器：**v1.15.0**
 - 站点：<http://192.168.3.173:7891>
 - 管理页：<http://192.168.3.173:7891/admin>（token 见 `C:\MCLServer\admin_token.txt`）
 - GitHub：<https://github.com/Tiantian124446/MCL>
-- Release：<https://github.com/Tiantian124446/MCL/releases/tag/v1.14.0>
-- 最新资产 SHA256：`B5EABBED4D566EF2CAEAD53F19745A620E148CF33DFA2A7784E5C14F814146B4`
+- Release：<https://github.com/Tiantian124446/MCL/releases/tag/v1.15.0>
+- 最新资产 SHA256：`2D53737FEFADCEADB334E1DD05AB1E12D6CD7AC639988B19A8172D3B2EA1EB34`
   （站点下载 = GitHub 资产 = 本地构建，均已校验）
 
 ## 关键资产
@@ -34,25 +34,23 @@
 - 深色落地页：`下载最新版本` + `BUG反馈`；`/api/status` 动态显示版本
 - `/feedback` → guest 保存 `BUG反馈_*.txt` / `BUG反馈.txt`，返回 txt 下载并通知主机
 - 反馈限流：同 IP 60 秒 1 条（429 + `Retry-After`），请求体 > 20KB 返回 413
-- 管理页：`/admin` 输入 token → `/admin/feedback?token=…` 查看反馈记录；`/admin/feedback.csv?token=…` 导出 CSV（Excel 可直接打开）
+- 管理页：`/admin` 输入 token → `/admin/feedback?token=…` 查看记录；`/admin/feedback.csv?token=…` 导出 CSV
 - `?feedback=1` / `#feedback` 自动打开反馈弹窗
 
-## 启动器 v1.14.0
+## 启动器 v1.15.0
 
 - 首页：版本选择、昵称、内存滑块、开始游戏、安装/更新、检查更新、官网/反馈
 - 账户：离线昵称列表、添加/使用/删除、持久化
 - 游戏设置：目录/Java/内存/下载源；Java 扫描与切换；自动备份存档开关
-- **游戏选项（v1.14.0）**：可视化修改 `options.txt`
-  - 渲染距离、模拟距离、最大帧率、视场角
-  - 图形模式、粒子效果、云、全屏
-  - 保存保留未知选项；视场角按归一化值读写（0.0 → 70°）
+- 游戏选项：可视化修改 `options.txt`（渲染/模拟距离、帧率、视场角、图形、粒子、云、全屏）
 - 自动备份：启动时 24 小时内无 `backups/auto_*` 则复制 `saves`
 - 版本列表搜索
 - 模组管理：名称筛选、单项/全部启用禁用、删除、刷新、打开目录
+- **存档管理（v1.15.0）**：列表、备份、删除、打开/刷新、**恢复最近备份**（当前存档先改名保护）
 - 联机：服务器列表、添加/编辑/删除/显示切换、一键直连、TCP 测速
-- 资源管理、崩溃分析、存档管理、诊断信息
+- 资源管理、崩溃分析、诊断信息
 - 模组下载、全屏 F11
-- 关于页：v1.14.0 / 访问官网 / 提交 BUG 反馈 / 导出诊断信息
+- 关于页：v1.15.0 / 访问官网 / 提交 BUG 反馈 / 导出诊断信息
 
 ## 已知问题
 
