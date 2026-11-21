@@ -199,7 +199,7 @@
   $('cancelBtn').onclick=()=>$('modal').classList.remove('show');
   $('modal').onclick=e=>{ if(e.target===$('modal')) $('modal').classList.remove('show'); };
   document.addEventListener('keydown',e=>{ if(e.key==='Escape') $('modal').classList.remove('show'); });
-  if(location.hash==='#feedback'){ $('modal').classList.add('show'); }
+  if(location.hash==='#feedback' || location.search.indexOf('feedback=1')>=0){ $('modal').classList.add('show'); }
 
   $('submitBtn').onclick=async function(){
     const text=$('fbText').value.trim();

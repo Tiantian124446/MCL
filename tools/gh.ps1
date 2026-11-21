@@ -68,12 +68,12 @@ switch ($Action.ToLowerInvariant()) {
       git add -A
       git commit -m $Message 2>&1 | Out-Null
       $url = "https://$token@github.com/$User/$Name.git"
-      $oldEap = $ErrorActionPreference
-      $ErrorActionPreference = 'Continue'
-      $out = git -c credential.helper= push $url HEAD:main 2>&1
-      $ErrorActionPreference = $oldEap
-      $text = ($out | Out-String)
-      $text = $text.Replace($token, '***')
+      $outFile = Join-Path $env:TEMP 'mcl_git_push.out'
+      $errFile = Join-Path $env:TEMP 'mcl_git_push.err'
+      Remove-Item $outFile, $errFile -Force -ErrorAction SilentlyContinue
+      $p = Start-Process -FilePath 'git' -ArgumentList @('-c','credential.helper=','push',$url,'HEAD:main') -NoNewWindow -Wait -PassThru -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+      $text = ((Get-Content $outFile -Raw -ErrorAction SilentlyContinue) + (Get-Content $errFile -Raw -ErrorAction SilentlyContinue))
+      $text = ([string]$text).Replace($token, '***')
       $text
     } finally { Pop-Location }
   }
