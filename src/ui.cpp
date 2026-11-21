@@ -40,7 +40,7 @@ static const float SCALE_MIN = 0.60f;
 static const float SCALE_MAX = 4.00f;
 
 // 应用版本与发布服务器（Win10 服务器站点）
-static const wchar_t* kAppVersion = L"1.7.0";
+static const wchar_t* kAppVersion = L"1.8.0";
 static const wchar_t* kServerBase = L"http://192.168.3.173:7891";
 
 static inline Color C(int r, int g, int b, int a = 255) {
@@ -468,6 +468,7 @@ private:
     std::vector<VersionInfo> manifest_;
     std::set<std::string> installedSet_;
     std::vector<int> filtered_;       // manifest_ 下标
+    std::wstring verSearch_;          // 版本列表搜索词
     std::vector<std::string> installedOnly_;
     bool  showInstalledOnly_ = false;
     int   verCat_ = 0;                // 版本分类 0全部 1正式版 2快照 3远古版 4愚人节版
@@ -711,6 +712,15 @@ LRESULT CALLBACK MainWindow::wndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     case WM_COMMAND:
         if (HIWORD(w) == EN_CHANGE) {
+            if (LOWORD(w) == CTL_SEARCH) {
+                wchar_t b[256] = { 0 };
+                GetWindowTextW((HWND)l, b, 256);
+                self.verSearch_ = trimW(std::wstring(b));
+                self.listScroll_ = 0;
+                self.selList_ = -1;
+                self.dirty_ = true;
+                InvalidateRect(h, nullptr, FALSE);
+            }
             // 输入内容变化 -> 稍后由按钮点击时统一读取
             return 0;
         }
@@ -1328,6 +1338,15 @@ static bool isAprilFoolsVersion(const std::string& type, const std::string& id,
     return releaseTime.size() >= 10 && releaseTime.compare(5, 5, "-04-01") == 0;
 }
 
+static bool versionMatchesSearch(const std::wstring& query, const std::string& id) {
+    if (query.empty()) return true;
+    std::wstring w = utf8ToWide(id);
+    std::wstring q = query;
+    for (auto& c : w) c = (wchar_t)towlower(c);
+    for (auto& c : q) c = (wchar_t)towlower(c);
+    return w.find(q) != std::wstring::npos;
+}
+
 static bool versionInCategory(int cat, const std::string& type, const std::string& id,
                               const std::string& releaseTime) {
     switch (cat) {
@@ -1394,6 +1413,7 @@ void MainWindow::drawVersions(Graphics& g, int W, int H) {
             if (idx < 0 || idx >= (int)manSnap.size()) continue;
             const VersionInfo& v = manSnap[idx];
             if (!versionInCategory(verCat_, v.type, v.id, v.releaseTime)) continue;
+            if (!versionMatchesSearch(verSearch_, v.id)) continue;
             Row r;
             r.name = utf8ToWide(v.id);
             r.id = v.id;
@@ -2643,6 +2663,8 @@ void MainWindow::onCommand(int id) {
                     if (idx < 0 || idx >= (int)manifest_.size()) continue;
                     const VersionInfo& v = manifest_[idx];
                     if (!versionInCategory(verCat_, v.type, v.id, v.releaseTime)) continue;
+            if (!versionMatchesSearch(verSearch_, v.id)) continue;
+                    if (!versionMatchesSearch(verSearch_, v.id)) continue;
                     bool inst = installedSet_.count(v.id) > 0;
                     if (showInstalledOnly_ && !inst) continue;
                     ids.push_back(v.id);
@@ -3359,6 +3381,7 @@ void MainWindow::installSelectedAsync() {
                 if (idx < 0 || idx >= (int)manifest_.size()) continue;
                 const VersionInfo& v = manifest_[idx];
                 if (!versionInCategory(verCat_, v.type, v.id, v.releaseTime)) continue;
+            if (!versionMatchesSearch(verSearch_, v.id)) continue;
                 bool inst = installedSet_.count(v.id) > 0;
                 if (showInstalledOnly_ && !inst) continue;
                 ids.push_back(v.id);
@@ -3424,6 +3447,8 @@ void MainWindow::launchSelectedAsync() {
                     if (idx < 0 || idx >= (int)manifest_.size()) continue;
                     const VersionInfo& v = manifest_[idx];
                     if (!versionInCategory(verCat_, v.type, v.id, v.releaseTime)) continue;
+            if (!versionMatchesSearch(verSearch_, v.id)) continue;
+                    if (!versionMatchesSearch(verSearch_, v.id)) continue;
                     bool inst = installedSet_.count(v.id) > 0;
                     if (showInstalledOnly_ && !inst) continue;
                     ids.push_back(v.id);
