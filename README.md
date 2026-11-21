@@ -43,6 +43,7 @@ g++ -std=c++17 -O2 -municode -mwindows `
 - `bootstrap.ps1`：在 guest 内提权运行，下载包、复制文件、加防火墙、建计划任务
 - `watchdog.ps1`：每 5 分钟检查服务并重启
 - 反馈保存为 `C:\MCLServer\feedback\BUG反馈_*.txt`，并 POST 到主机 `:8098/feedback`
+- 管理页：`/admin` → 输入 `C:\MCLServer\admin_token.txt` 中的 token 查看反馈记录
 
 ## 反馈 → 修复 → 重新发布
 

@@ -33,6 +33,7 @@
 - 深色落地页：`下载最新版本` + `BUG反馈`；`/api/status` 动态显示版本
 - `/feedback` → guest 保存 `BUG反馈_*.txt` / `BUG反馈.txt`，返回 txt 下载并通知主机
 - 反馈限流：同 IP 60 秒 1 条（429 + `Retry-After`），请求体 > 20KB 返回 413
+- 管理页：`/admin` 输入 token → `/admin/feedback?token=…` 查看 Win10 上的 `BUG反馈_*.txt`；token 在 `C:\MCLServer\admin_token.txt`
 - `?feedback=1` / `#feedback` 自动打开反馈弹窗
 
 ## 启动器 v1.5.1
@@ -67,5 +68,5 @@
 
 1. Marvis 从浏览器侧边栏打开 LAN 站点做界面评审并合并建议。
 2. PCL2 对齐下一批：下载中心分类（资源包/光影/整合包）、Microsoft 登录、资源包/光影启用状态识别。
-3. 站点反馈查看页（加 token）；限流已完成。
+3. 站点反馈查看页已完成（`/admin` + token）；可增加导出/分类。
 4. 下一版本建议 v1.6.0，继续 deploy + release 流水线。
