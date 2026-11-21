@@ -29,3 +29,6 @@ tools/test_vmrun.bat
 whoami_groups.txt
 vmrun_test.txt
 
+
+诊断信息_*.txt
+resdl_debug.txt

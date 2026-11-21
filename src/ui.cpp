@@ -40,7 +40,7 @@ static const float SCALE_MIN = 0.60f;
 static const float SCALE_MAX = 4.00f;
 
 // 应用版本与发布服务器（Win10 服务器站点）
-static const wchar_t* kAppVersion = L"1.5.1";
+static const wchar_t* kAppVersion = L"1.6.0";
 static const wchar_t* kServerBase = L"http://192.168.3.173:7891";
 
 static inline Color C(int r, int g, int b, int a = 255) {
@@ -116,10 +116,11 @@ enum {
     BTN_SRV_VIS_BASE       = 750000,   // +列表下标: 切换"显示服务器 / 不显示服务器"
     BTN_VERCAT_BASE        = 800000,
     BTN_RES_OPEN_BASE      = 900000,   // +0..7: 资源管理卡片
-    BTN_OPEN_GAMEDIR,
-    BTN_ANALYZE_CRASH,
-    BTN_MODMGR_REFRESH,
-    BTN_MODMGR_OPEN,
+    BTN_OPEN_GAMEDIR       = 901000,
+    BTN_ANALYZE_CRASH      = 901001,
+    BTN_EXPORT_DIAG        = 901002,
+    BTN_MODMGR_REFRESH     = 901003,
+    BTN_MODMGR_OPEN        = 901004,
     BTN_MODMGR_TOGGLE_BASE = 910000,   // +列表下标: 启用/禁用
     BTN_MODMGR_DEL_BASE    = 920000,   // +列表下标: 删除
     BTN_SAVE_OPEN_BASE     = 930000,   // +列表下标: 打开存档目录
@@ -633,6 +634,7 @@ private:
     void connectServer(int idx);         // 一键启动并直连该服务器
     void openResourceFolder(int idx);    // 打开资源包/光影/存档等目录
     void analyzeCrash();                 // 读取最新崩溃报告并给出建议
+    void exportDiagnostics();            // 导出诊断信息
     void loadInstalledMods();            // 扫描 mods 目录
     void toggleInstalledMod(int idx);    // 启用/禁用模组
     void deleteInstalledMod(int idx);    // 删除模组
@@ -1613,6 +1615,8 @@ void MainWindow::drawAbout(Graphics& g, int W, int H) {
     drawButton(g, b1, L"访问官网", BTN_OPEN_SITE, true, true, 13);
     RECT b2 = mkRect(c.left + 154, c.top + 350, c.left + 294, c.top + 390);
     drawButton(g, b2, L"提交 BUG 反馈", BTN_OPEN_FEEDBACK, false, true, 13);
+    RECT b3 = mkRect(c.left + 304, c.top + 350, c.left + 454, c.top + 390);
+    drawButton(g, b3, L"导出诊断信息", BTN_EXPORT_DIAG, false, true, 13);
 }
 
 static bool newestFileInDir(const std::wstring& dir, const std::wstring& filter, std::wstring& out) {
@@ -1632,6 +1636,108 @@ static bool newestFileInDir(const std::wstring& dir, const std::wstring& filter,
     } while (FindNextFileW(h, &fd));
     FindClose(h);
     return found;
+}
+
+void MainWindow::exportDiagnostics() {
+    SYSTEMTIME st{};
+    GetLocalTime(&st);
+    wchar_t ts[64];
+    swprintf(ts, 64, L"%04d%02d%02d_%02d%02d%02d", st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+
+    OSVERSIONINFOW os{};
+    os.dwOSVersionInfoSize = sizeof(os);
+    {
+        typedef LONG (WINAPI* RtlGetVersionFn)(OSVERSIONINFOW*);
+        HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+        RtlGetVersionFn fn = ntdll ? (RtlGetVersionFn)GetProcAddress(ntdll, "RtlGetVersion") : nullptr;
+        if (fn) fn(&os); else GetVersionExW(&os);
+    }
+    SYSTEM_INFO si{};
+    GetNativeSystemInfo(&si);
+    const wchar_t* arch = (si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64) ? L"x64" :
+                          (si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_ARM64) ? L"ARM64" : L"x86";
+
+    int javaMajor = 0;
+    if (!javaPath_.empty()) javaMajor = Launcher::queryJavaMajor(javaPath_);
+    std::vector<std::string> installed = launcher_.listInstalled();
+
+    auto countFiles = [](const std::wstring& dir, const wchar_t* filter) {
+        int n = 0;
+        WIN32_FIND_DATAW fd;
+        HANDLE h = FindFirstFileW((dir + L"\\" + filter).c_str(), &fd);
+        if (h != INVALID_HANDLE_VALUE) {
+            do { if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) n++; } while (FindNextFileW(h, &fd));
+            FindClose(h);
+        }
+        return n;
+    };
+    auto countDirs = [](const std::wstring& dir) {
+        int n = 0;
+        WIN32_FIND_DATAW fd;
+        HANDLE h = FindFirstFileW((dir + L"\\*").c_str(), &fd);
+        if (h != INVALID_HANDLE_VALUE) {
+            do {
+                if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
+                if (wcscmp(fd.cFileName, L".") == 0 || wcscmp(fd.cFileName, L"..") == 0) continue;
+                n++;
+            } while (FindNextFileW(h, &fd));
+            FindClose(h);
+        }
+        return n;
+    };
+
+    std::wstring logsDir = joinPath(gameDir_, L"logs");
+    std::wstring crashDir = joinPath(gameDir_, L"crash-reports");
+    std::wstring latestLog, latestCrash;
+    newestFileInDir(logsDir, L"latest.log", latestLog);
+    if (!newestFileInDir(crashDir, L"crash-*.txt", latestCrash)) newestFileInDir(crashDir, L"*.txt", latestCrash);
+
+    std::wstring t;
+    t += L"MCL 启动器诊断信息\r\n";
+    t += L"生成时间: " + std::wstring(ts) + L"\r\n";
+    t += L"启动器版本: v" + std::wstring(kAppVersion) + L"\r\n";
+    t += L"系统: Windows " + std::to_wstring(os.dwMajorVersion) + L"." + std::to_wstring(os.dwMinorVersion) +
+         L" (build " + std::to_wstring(os.dwBuildNumber) + L", " + arch + L")\r\n";
+    t += L"游戏目录: " + gameDir_ + L"\r\n";
+    t += L"Java: " + (javaPath_.empty() ? L"(未检测到)" : javaPath_) +
+         L" (主版本 " + std::to_wstring(javaMajor) + L")\r\n";
+    t += L"玩家昵称: " + playerName_ + L"\r\n";
+    t += L"最大内存: " + std::to_wstring(memoryMB_) + L" MB\r\n";
+    t += L"当前选择版本: " + (selVersion_.empty() ? L"(未选择)" : selVersion_) + L"\r\n";
+    t += L"已安装版本数: " + std::to_wstring(installed.size()) + L"\r\n";
+    if (!installed.empty()) {
+        std::wstring list;
+        for (size_t i = 0; i < installed.size() && i < 30; ++i) {
+            if (i) list += L", ";
+            list += utf8ToWide(installed[i]);
+        }
+        t += L"已安装版本: " + list + L"\r\n";
+    }
+    t += L"模组数: " + std::to_wstring(countFiles(modsDir(), L"*")) + L"\r\n";
+    t += L"资源包数: " + std::to_wstring(countFiles(joinPath(gameDir_, L"resourcepacks"), L"*")) + L"\r\n";
+    t += L"光影包数: " + std::to_wstring(countFiles(joinPath(gameDir_, L"shaderpacks"), L"*")) + L"\r\n";
+    t += L"存档数: " + std::to_wstring(countDirs(joinPath(gameDir_, L"saves"))) + L"\r\n";
+    t += L"最新日志: " + (latestLog.empty() ? L"(无)" : latestLog) + L"\r\n";
+    t += L"最新崩溃报告: " + (latestCrash.empty() ? L"(无)" : latestCrash) + L"\r\n";
+    t += L"发布服务器: http://192.168.3.173:7891\r\n";
+    t += L"\r\n提示：把本文件附在官网 BUG反馈 中，可帮助快速定位问题。\r\n";
+
+    std::wstring path = joinPath(exeDir(), L"诊断信息_" + std::wstring(ts) + L".txt");
+    FILE* fp = _wfopen(path.c_str(), L"wb");
+    if (!fp) {
+        MessageBoxW(hwnd_, L"无法写入诊断文件。", L"MCL 诊断", MB_ICONWARNING);
+        return;
+    }
+    const unsigned char bom[3] = { 0xEF, 0xBB, 0xBF };
+    fwrite(bom, 1, 3, fp);
+    std::string u8 = wideToUtf8(t);
+    fwrite(u8.data(), 1, u8.size(), fp);
+    fclose(fp);
+    pushLog(L"诊断信息已导出: " + path);
+    if (MessageBoxW(hwnd_, (L"诊断信息已导出：\n" + path + L"\n\n是否打开所在文件夹？").c_str(),
+                    L"MCL 诊断", MB_YESNO | MB_ICONINFORMATION) == IDYES) {
+        ShellExecuteW(nullptr, L"open", exeDir().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    }
 }
 
 void MainWindow::analyzeCrash() {
@@ -2335,6 +2441,10 @@ void MainWindow::onCommand(int id) {
         std::wstring d = (page_ == 8) ? joinPath(gameDir_, L"backups") : modsDir();
         if (!pathExists(d)) createDirs(d);
         ShellExecuteW(nullptr, L"open", d.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        return;
+    }
+    if (id == BTN_EXPORT_DIAG) {
+        exportDiagnostics();
         return;
     }
     if (id == BTN_ANALYZE_CRASH) {

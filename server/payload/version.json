@@ -1,6 +1,6 @@
 {
-    "version":  "1.5.1",
-    "updated":  "2026-11-22 01:08",
+    "version":  "1.6.0",
+    "updated":  "2026-11-22 01:20",
     "file":  "MCLauncher.exe",
-    "notes":  "v1.5.1：存档备份/删除改用 Win32 SHFileOperation，exe 从 3.6MB 降至约 1.36MB；功能与 v1.5.0 一致，备份/删除已实测通过。"
+    "notes":  "v1.6.0：关于页新增「导出诊断信息」（系统/Java/游戏目录/版本/模组/存档/日志/崩溃路径）；修复按钮 ID 冲突（资源管理打开目录、崩溃分析、模组刷新/打开）；OS 版本改用 RtlGetVersion。"
 }
