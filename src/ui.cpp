@@ -40,7 +40,7 @@ static const float SCALE_MIN = 0.60f;
 static const float SCALE_MAX = 4.00f;
 
 // 应用版本与发布服务器（Win10 服务器站点）
-static const wchar_t* kAppVersion = L"1.8.0";
+static const wchar_t* kAppVersion = L"1.9.0";
 static const wchar_t* kServerBase = L"http://192.168.3.173:7891";
 
 static inline Color C(int r, int g, int b, int a = 255) {
@@ -536,6 +536,7 @@ private:
     struct InstalledMod { std::wstring file; std::wstring name; unsigned long long size; bool enabled; };
     std::vector<InstalledMod> installedMods_;
     int modMgrScroll_ = 0;
+    std::wstring modMgrFilter_;      // 模组列表筛选词
     struct SaveEntry { std::wstring name; std::wstring path; unsigned long long size; FILETIME modified; };
     std::vector<SaveEntry> saves_;
     bool         filesLoading_ = false;
@@ -718,6 +719,13 @@ LRESULT CALLBACK MainWindow::wndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 self.verSearch_ = trimW(std::wstring(b));
                 self.listScroll_ = 0;
                 self.selList_ = -1;
+                self.dirty_ = true;
+                InvalidateRect(h, nullptr, FALSE);
+            } else if (LOWORD(w) == CTL_MOD_SEARCH && self.page_ == 7) {
+                wchar_t b[256] = { 0 };
+                GetWindowTextW((HWND)l, b, 256);
+                self.modMgrFilter_ = trimW(std::wstring(b));
+                self.modMgrScroll_ = 0;
                 self.dirty_ = true;
                 InvalidateRect(h, nullptr, FALSE);
             }
@@ -984,6 +992,10 @@ void MainWindow::layoutControls() {
         }
         SetWindowPos(editModMcVer_, nullptr, S(cx + cw - 210), S(y + 10), S(194), S(30), SWP_NOZORDER);
         ShowWindow(editModMcVer_, SW_SHOW);
+    } else if (page_ == 7) {
+        int y = HEADER_H + 16;
+        SetWindowPos(editModSearch_, nullptr, S(cx + 64), S(y + 60), S(cw - 500), S(28), SWP_NOZORDER);
+        ShowWindow(editModSearch_, SW_SHOW);
     } else if (page_ == 5) {
         int y = HEADER_H + 16;
         int hostX = cx + 264;                 // 与 drawServers 的表单卡片保持一致
@@ -1952,7 +1964,7 @@ void MainWindow::drawModMgr(Graphics& g, int W, int H) {
     int cw = W - SIDEBAR_W - 48;
     int y = HEADER_H + 16;
 
-    RECT info = mkRect(cx, y, cx + cw, y + 64);
+    RECT info = mkRect(cx, y, cx + cw, y + 96);
     drawCard(g, info);
     RECT t1 = mkRect(info.left + 16, info.top + 8, info.right - 440, info.top + 30);
     drawText(g, L"模组目录", fL, kTextDim, t1, 0);
@@ -1972,14 +1984,28 @@ void MainWindow::drawModMgr(Graphics& g, int W, int H) {
     drawButton(g, b3, L"全部禁用", BTN_MODMGR_DISABLE_ALL, false, true, 12);
     RECT b4 = mkRect(info.right - 106, info.top + 16, info.right - 16, info.top + 46);
     drawButton(g, b4, L"打开目录", BTN_MODMGR_OPEN, false, true, 12);
+    RECT fl = mkRect(info.left + 16, info.top + 64, info.left + 56, info.top + 92);
+    drawText(g, L"筛选", fL, kTextDim, fl, 0);
+    RECT fi = mkRect(info.left + 64, info.top + 64, info.right - 440, info.top + 92);
+    fillRound(g, fi, 7, kInputBg);
 
-    int listTop = y + 64 + 12;
+    int listTop = y + 96 + 12;
     int listBottom = H - 16;
     int rowH = 46;
     int headerH = 28;
     int rows = (listBottom - listTop - headerH - 8) / rowH;
     if (rows < 1) rows = 1;
-    int total = (int)installedMods_.size();
+    std::vector<int> vis;
+    {
+        std::wstring q = modMgrFilter_;
+        for (auto& c : q) c = (wchar_t)towlower(c);
+        for (int i = 0; i < (int)installedMods_.size(); ++i) {
+            std::wstring n = installedMods_[i].name;
+            for (auto& c : n) c = (wchar_t)towlower(c);
+            if (q.empty() || n.find(q) != std::wstring::npos) vis.push_back(i);
+        }
+    }
+    int total = (int)vis.size();
     int maxScroll = total > rows ? total - rows : 0;
     if (modMgrScroll_ > maxScroll) modMgrScroll_ = maxScroll;
     if (modMgrScroll_ < 0) modMgrScroll_ = 0;
@@ -1994,7 +2020,7 @@ void MainWindow::drawModMgr(Graphics& g, int W, int H) {
 
     if (total == 0) {
         RECT e = mkRect(list.left + 12, list.top + headerH + 24, list.right - 12, list.top + headerH + 56);
-        drawText(g, L"mods 文件夹为空。去「模组下载」搜索并下载模组，或点右上角打开 mods 文件夹手动放入 .jar。",
+        drawText(g, installedMods_.empty() ? L"mods 文件夹为空。去「模组下载」搜索并下载模组，或打开目录手动放入 .jar。" : L"没有匹配的模组，换个关键词试试。",
                  fL, kTextDim, e, 0);
         return;
     }
@@ -2003,7 +2029,8 @@ void MainWindow::drawModMgr(Graphics& g, int W, int H) {
     for (int i = 0; i < rows; ++i) {
         int idx = modMgrScroll_ + i;
         if (idx >= total) break;
-        const InstalledMod& m = installedMods_[idx];
+        int orig = vis[idx];
+        const InstalledMod& m = installedMods_[orig];
         RECT row = mkRect(list.left + 8, ry, list.right - 8, ry + rowH - 4);
         if ((idx & 1) == 0) fillRound(g, row, 6, C(250, 251, 253));
         RECT rn = mkRect(row.left + 8, row.top, row.right - 330, row.bottom);
@@ -2015,9 +2042,9 @@ void MainWindow::drawModMgr(Graphics& g, int W, int H) {
         RECT rst = mkRect(row.right - 208, row.top, row.right - 136, row.bottom);
         drawText(g, m.enabled ? L"已启用" : L"已禁用", fD, m.enabled ? kAccent : kTextDim, rst, 0);
         RECT bt = mkRect(row.right - 128, row.top + 8, row.right - 66, row.bottom - 8);
-        drawButton(g, bt, m.enabled ? L"禁用" : L"启用", BTN_MODMGR_TOGGLE_BASE + idx, false, true, 11);
+        drawButton(g, bt, m.enabled ? L"禁用" : L"启用", BTN_MODMGR_TOGGLE_BASE + orig, false, true, 11);
         RECT bd = mkRect(row.right - 58, row.top + 8, row.right - 6, row.bottom - 8);
-        drawButton(g, bd, L"删除", BTN_MODMGR_DEL_BASE + idx, false, true, 11);
+        drawButton(g, bd, L"删除", BTN_MODMGR_DEL_BASE + orig, false, true, 11);
         ry += rowH;
     }
     if (maxScroll > 0) {
@@ -2524,7 +2551,10 @@ void MainWindow::onCommand(int id) {
 
     // ---- 模组管理页
     case BTN_NAV_MODMGR:
-        page_ = 7; loadInstalledMods(); layoutControls(); dirty_ = true; break;
+        page_ = 7;
+        modMgrFilter_.clear();
+        if (editModSearch_) SetWindowTextW(editModSearch_, L"");
+        loadInstalledMods(); layoutControls(); dirty_ = true; break;
 
     // ---- 资源管理页
     case BTN_NAV_RESOURCES:

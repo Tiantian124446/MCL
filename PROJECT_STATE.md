@@ -1,15 +1,15 @@
 # MCL 项目状态与运维手册（DSH 主设计）
 
-更新时间：2026-11-22 01:32
+更新时间：2026-11-22 01:36
 
 ## 当前版本
 
-- 启动器 / 服务器：**v1.8.0**
+- 启动器 / 服务器：**v1.9.0**
 - 站点：<http://192.168.3.173:7891>
 - 管理页：<http://192.168.3.173:7891/admin>（token 见 `C:\MCLServer\admin_token.txt`）
 - GitHub：<https://github.com/Tiantian124446/MCL>
-- Release：<https://github.com/Tiantian124446/MCL/releases/tag/v1.8.0>
-- 最新资产 SHA256：`BB8BB58C339FE731FB9BF00C7E408B90C57B171DCC0B1E95AED2DBE2CA03DA36`
+- Release：<https://github.com/Tiantian124446/MCL/releases/tag/v1.9.0>
+- 最新资产 SHA256：`E2D409F933425C16888DCBC1D064D682FB3EB9C42AC504728AD1CF166DE8234E`
   （站点下载 = GitHub 资产 = 本地构建，均已校验）
 
 ## 关键资产
@@ -37,26 +37,30 @@
 - 管理页：`/admin` 输入 token → `/admin/feedback?token=…` 查看反馈记录
 - `?feedback=1` / `#feedback` 自动打开反馈弹窗
 
-## 启动器 v1.8.0
+## 启动器 v1.9.0
 
 - 首页：版本选择、昵称、内存滑块、开始游戏、安装/更新、检查更新、官网/反馈
-- **版本列表搜索（v1.8.0）**：输入即按版本 ID 过滤，与分类/仅看已安装叠加；选中/安装/启动/删除同步过滤
+- 版本列表搜索：输入即按版本 ID 过滤，与分类/仅看已安装叠加；选中/安装/启动/删除同步过滤
+- **模组管理（v1.9.0）**：
+  - 名称筛选框，输入即过滤
+  - 单项启用/禁用、删除按原始模组操作
+  - 全部启用/全部禁用
+  - 刷新、打开目录
 - 资源管理：8 类资源计数 + 打开文件夹
-- 崩溃分析：`crash-reports` / `latest.log`，F9，识别内存/Java/模组/OpenGL 等
-- 模组管理：`.jar` / `.jar.disabled` 列表、单项/全部启用禁用、删除、刷新、打开目录
+- 崩溃分析：`crash-reports` / `latest.log`，F9
 - 存档管理：列表、备份、删除、打开、刷新；备份/删除用 `SHFileOperation`
-- 诊断信息：关于页「导出诊断信息」生成 `诊断信息_<时间>.txt`
-- 按钮 ID 冲突已修复（资源打开 / 崩溃分析 / 模组刷新 / 诊断）
+- 诊断信息：关于页「导出诊断信息」
+- 按钮 ID 冲突已修复
 - 游戏设置、模组下载、联机、全屏 F11
-- 关于页：v1.8.0 / 访问官网 / 提交 BUG 反馈 / 导出诊断信息
+- 关于页：v1.9.0 / 访问官网 / 提交 BUG 反馈 / 导出诊断信息
 
 ## 已知问题
 
 - 资源下载（Modrinth 资源包/光影）：
   - App 内 WinHTTP 拉取版本 JSON 易超时挂起
-  - Win10 guest 访问 Modrinth API 约 16.6s，且 PowerShell 访问 CDN TLS 失败
+  - Win10 guest 访问 Modrinth API 约 16.6s，PowerShell 访问 CDN TLS 失败
   - 结论：需代理/镜像方案，暂不发布
-- 原生 EDIT 自动测试需用 `WM_CHAR` 模拟真实输入；外部 `SetWindowText` 不会触发应用内读取（真实用户输入正常）。
+- 原生 EDIT 自动测试需用 `WM_CHAR`；外部 `SetWindowText` 不会触发应用内读取（真实用户输入正常）。
 
 ## 自动反馈闭环
 
@@ -68,12 +72,12 @@
 
 - DSH：主设计 / 实现 / 发布
 - 豆包：测试评审（云端无法访问私有 LAN IP，结论有网络局限）
-- Marvis：Edge 插件已安装并显示「已连接」（ID `ljlhefjfpbolcfhmjdodmmmkamidkplg`，popup `src/popup/index.html` 只提供连接状态，无聊天输入）；桌面端无独立聊天窗口，评审仍未完成
+- Marvis：Edge 插件已安装并显示「已连接」；popup 仅连接状态，桌面端无独立聊天窗口，评审未完成
 - 记录：`docs/collaboration.md`
 
 ## 待办
 
 1. 资源下载：Modrinth 代理/镜像方案。
-2. Marvis 评审：尝试桌面端热键/助手浮窗，或改用豆包做 UI 评审。
+2. Marvis 评审或替代评审流程。
 3. Microsoft 登录方案（需要 Azure 客户端 ID）。
 4. 管理页反馈导出/分类。
