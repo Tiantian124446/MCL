@@ -43,7 +43,7 @@ static const float SCALE_MIN = 0.60f;
 static const float SCALE_MAX = 4.00f;
 
 // 应用版本与发布服务器（Win10 服务器站点）
-static const wchar_t* kAppVersion = L"1.23.1";
+static const wchar_t* kAppVersion = L"1.23.2";
 static const wchar_t* kServerBase = L"http://192.168.3.173:7891";
 
 static inline Color C(int r, int g, int b, int a = 255) {
@@ -4405,9 +4405,25 @@ void MainWindow::installSelectedAsync() {
     }).detach();
 }
 
+static std::string baseMcVersionFromId(const std::string& id) {
+    if (id.rfind("fabric-loader-", 0) == 0 || id.rfind("quilt-loader-", 0) == 0) {
+        size_t p = id.rfind('-');
+        if (p != std::string::npos && p + 1 < id.size()) return id.substr(p + 1);
+    }
+    size_t f = id.find("-forge-");
+    if (f != std::string::npos) return id.substr(0, f);
+    if (id.rfind("neoforge-", 0) == 0) {
+        int major = 0, minor = 0;
+        sscanf(id.c_str() + 9, "%d.%d", &major, &minor);
+        if (major > 0) return "1." + std::to_string(major) + "." + std::to_string(minor);
+    }
+    return id;
+}
+
 static int requiredJavaForVersion(const std::string& id) {
+    std::string base = baseMcVersionFromId(id);
     int a = 0, b = 0, c = 0;
-    sscanf(id.c_str(), "%d.%d.%d", &a, &b, &c);
+    sscanf(base.c_str(), "%d.%d.%d", &a, &b, &c);
     if (a <= 1) {
         if (b > 20 || (b == 20 && c >= 5)) return 21;
         if (b >= 18) return 17;

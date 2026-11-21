@@ -1,6 +1,6 @@
 {
-    "version":  "1.23.1",
-    "updated":  "2026-11-22 02:55",
+    "version":  "1.23.2",
+    "updated":  "2026-11-22 02:59",
     "file":  "MCLauncher.exe",
-    "notes":  "v1.23.1：native 解压后把 DLL 扁平化到 natives 根目录，确保 LWJGL/GLFW 能按 java.library.path 找到；Fabric 1.20.1 已实测启动出 Minecraft 进程。"
+    "notes":  "v1.23.2：启动前 Java 检查解析加载器版本 ID（fabric-loader/quilt-loader/\u003cmc\u003e-forge/neoforge），不再把 Fabric 版本误判为 Java 8。"
 }
