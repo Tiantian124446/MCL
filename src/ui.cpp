@@ -43,7 +43,7 @@ static const float SCALE_MIN = 0.60f;
 static const float SCALE_MAX = 4.00f;
 
 // 应用版本与发布服务器（Win10 服务器站点）
-static const wchar_t* kAppVersion = L"1.20.0";
+static const wchar_t* kAppVersion = L"1.21.0";
 static const wchar_t* kServerBase = L"http://192.168.3.173:7891";
 
 static inline Color C(int r, int g, int b, int a = 255) {
@@ -134,6 +134,7 @@ enum {
     BTN_ISOLATION          = 901014,
     BTN_INSTALL_FABRIC     = 901015,
     BTN_INSTALL_FORGE      = 901016,
+    BTN_DOWNLOAD_LATEST    = 901017,
     BTN_AUTO_BACKUP        = 901009,
     BTN_GOPT_SAVE          = 901010,
     BTN_NAV_GOPT,
@@ -677,6 +678,7 @@ private:
     void exportDiagnostics();            // 导出诊断信息
     void installFabricAsync();           // 为当前版本安装 Fabric
     void installForgeAsync();            // 为当前版本安装 Forge
+    void downloadLatestAsync();          // 下载最新启动器到 downloads
     void loadInstalledMods();            // 扫描 mods 目录
     void toggleInstalledMod(int idx);    // 启用/禁用模组
     void deleteInstalledMod(int idx);    // 删除模组
@@ -2186,6 +2188,43 @@ void MainWindow::drawSettings(Graphics& g, int W, int H) {
 }
 
 // ------------------------------ 关于页 -------------------------------------
+void MainWindow::downloadLatestAsync() {
+    if (dlActive_.load()) { pushLog(L"已有下载任务在进行。"); return; }
+    dlActive_ = true;
+    dlPct_ = 0;
+    dirty_ = true;
+    std::thread([this]() {
+        std::wstring err;
+        std::wstring ver = L"latest";
+        std::string body;
+        if (httpGetToStringEx(L"http://192.168.3.173:7891/api/status", kBrowserUA, body, err)) {
+            Json j;
+            if (mjson::parse(body, j) && j.isObject()) {
+                std::string v = getStr(j, "version");
+                if (!v.empty()) ver = utf8ToWide(v);
+            }
+        }
+        std::wstring dir = joinPath(exeDir(), L"downloads");
+        createDirs(dir);
+        std::wstring file = joinPath(dir, L"MCLauncher_v" + ver + L".exe");
+        bool ok = httpDownloadToFileEx(L"http://192.168.3.173:7891/download/latest", file, kBrowserUA,
+            [this](unsigned long long done, unsigned long long total) {
+                if (total > 0) dlPct_ = (int)(done * 100 / total);
+                return true;
+            }, err);
+        dlActive_ = false;
+        if (ok) {
+            pushLog(L"已下载最新版: " + file);
+            MessageBoxW(hwnd_, (L"最新版已下载：\n" + file).c_str(), L"MCL 下载", MB_ICONINFORMATION);
+            ShellExecuteW(nullptr, L"open", dir.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        } else {
+            pushLog(L"下载最新版失败: " + err);
+            MessageBoxW(hwnd_, (L"下载失败：" + err).c_str(), L"MCL 下载", MB_ICONWARNING);
+        }
+        dirty_ = true;
+        if (hwnd_) PostMessageW(hwnd_, WM_TIMER, 0, 0);
+    }).detach();
+}
 void MainWindow::drawAbout(Graphics& g, int W, int H) {
     FontFamily ff(L"Microsoft YaHei");
     Font fL(&ff, 13.0f, FontStyleRegular, UnitPixel);
@@ -2232,6 +2271,8 @@ void MainWindow::drawAbout(Graphics& g, int W, int H) {
     drawButton(g, b2, L"提交 BUG 反馈", BTN_OPEN_FEEDBACK, false, true, 13);
     RECT b3 = mkRect(c.left + 304, c.top + 350, c.left + 454, c.top + 390);
     drawButton(g, b3, L"导出诊断信息", BTN_EXPORT_DIAG, false, true, 13);
+    RECT b4 = mkRect(c.left + 464, c.top + 350, c.left + 604, c.top + 390);
+    drawButton(g, b4, L"下载最新版", BTN_DOWNLOAD_LATEST, false, !dlActive_.load(), 13);
 }
 
 static bool newestFileInDir(const std::wstring& dir, const std::wstring& filter, std::wstring& out) {
@@ -3196,6 +3237,7 @@ void MainWindow::onCommand(int id) {
     if (id == BTN_GOPT_SAVE) { saveGameOptions(); return; }
     if (id == BTN_INSTALL_FABRIC) { installFabricAsync(); return; }
     if (id == BTN_INSTALL_FORGE) { installForgeAsync(); return; }
+    if (id == BTN_DOWNLOAD_LATEST) { downloadLatestAsync(); return; }
     if (id >= BTN_GOPT_DEC_BASE && id < BTN_GOPT_INC_BASE) {
         int row = id - BTN_GOPT_DEC_BASE;
         const char* key = nullptr; int mn = 0, mx = 0, step = 1;
