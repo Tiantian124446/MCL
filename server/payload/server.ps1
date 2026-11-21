@@ -237,6 +237,7 @@ function Handle-Request($client) {
       }
       $token = ''
       $q = ''
+      $page = 1
       foreach ($pair in $query.Split('&')) {
         if ([string]::IsNullOrWhiteSpace($pair)) { continue }
         $kv = $pair.Split('=', 2)
@@ -244,6 +245,8 @@ function Handle-Request($client) {
           $token = [Uri]::UnescapeDataString($kv[1].Replace('+', ' '))
         } elseif ([Uri]::UnescapeDataString($kv[0]) -eq 'q' -and $kv.Length -gt 1) {
           $q = [Uri]::UnescapeDataString($kv[1].Replace('+', ' '))
+        } elseif ([Uri]::UnescapeDataString($kv[0]) -eq 'page' -and $kv.Length -gt 1) {
+          try { $page = [int][Uri]::UnescapeDataString($kv[1]) } catch { $page = 1 }
         }
       }
       if ($path -eq '/admin' -and [string]::IsNullOrEmpty($token)) {
@@ -287,7 +290,19 @@ function Handle-Request($client) {
       }
       $tokHtml = [System.Net.WebUtility]::HtmlEncode($token)
       $qHtml = [System.Net.WebUtility]::HtmlEncode($q)
-      $html = '<!doctype html><meta charset="utf-8"><title>MCL 反馈记录</title><style>body{font-family:Microsoft YaHei;background:#0b1020;color:#e8eefc;padding:32px;max-width:1000px;margin:auto}h1{color:#8fb6ff}h2{font-size:15px;color:#b9c8ea;margin-top:26px;border-top:1px solid #27345c;padding-top:14px}pre{white-space:pre-wrap;background:#121a33;border:1px solid #27345c;border-radius:10px;padding:14px;line-height:1.6}a{color:#4f8cff}form{margin:18px 0}input{padding:8px 10px;border-radius:8px;border:1px solid #31406a;background:#0d1429;color:#e8eefc}button{padding:8px 14px;border-radius:8px;border:0;background:#4f8cff;color:#fff;font-weight:700}</style><h1>MCL 反馈记录</h1><form method="get" action="/admin/feedback"><input type="hidden" name="token" value="' + $tokHtml + '"><input name="q" value="' + $qHtml + '" placeholder="搜索文件名或内容"><button>搜索</button></form><p>共 ' + $files.Count + ' 条' + $(if ($q) { '（搜索：' + $qHtml + '）' } else { '' }) + ' · <a href="/">返回官网</a> · <a href="/admin/feedback.csv?token=' + $tokHtml + '">导出 CSV</a></p>'
+      $totalCount = $files.Count
+      $pageSize = 10
+      $pageCount = [Math]::Max(1, [Math]::Ceiling($totalCount / $pageSize))
+      if ($page -lt 1) { $page = 1 }
+      if ($page -gt $pageCount) { $page = $pageCount }
+      $files = @($files | Select-Object -Skip (($page - 1) * $pageSize) -First $pageSize)
+      $baseUrl = '/admin/feedback?token=' + $tokHtml + '&q=' + [Uri]::EscapeDataString($q)
+      $pager = '<p>'
+      if ($page -gt 1) { $pager += '<a href="' + $baseUrl + '&page=' + ($page - 1) + '">上一页</a> · ' }
+      $pager += '第 ' + $page + ' / ' + $pageCount + ' 页'
+      if ($page -lt $pageCount) { $pager += ' · <a href="' + $baseUrl + '&page=' + ($page + 1) + '">下一页</a>' }
+      $pager += '</p>'
+      $html = '<!doctype html><meta charset="utf-8"><title>MCL 反馈记录</title><style>body{font-family:Microsoft YaHei;background:#0b1020;color:#e8eefc;padding:32px;max-width:1000px;margin:auto}h1{color:#8fb6ff}h2{font-size:15px;color:#b9c8ea;margin-top:26px;border-top:1px solid #27345c;padding-top:14px}pre{white-space:pre-wrap;background:#121a33;border:1px solid #27345c;border-radius:10px;padding:14px;line-height:1.6}a{color:#4f8cff}form{margin:18px 0}input{padding:8px 10px;border-radius:8px;border:1px solid #31406a;background:#0d1429;color:#e8eefc}button{padding:8px 14px;border-radius:8px;border:0;background:#4f8cff;color:#fff;font-weight:700}</style><h1>MCL 反馈记录</h1><form method="get" action="/admin/feedback"><input type="hidden" name="token" value="' + $tokHtml + '"><input name="q" value="' + $qHtml + '" placeholder="搜索文件名或内容"><button>搜索</button></form><p>共 ' + $totalCount + ' 条' + $(if ($q) { '（搜索：' + $qHtml + '）' } else { '' }) + ' · <a href="/">返回官网</a> · <a href="/admin/feedback.csv?token=' + $tokHtml + '">导出 CSV</a></p>' + $pager
       if ($files.Count -eq 0) { $html += '<p>暂无反馈。</p>' }
       foreach ($f in $files) {
         $content = ''
