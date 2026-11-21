@@ -34,7 +34,7 @@
 - 深色落地页：`下载最新版本` + `BUG反馈`；`/api/status` 动态显示版本
 - `/feedback` → guest 保存 `BUG反馈_*.txt` / `BUG反馈.txt`，返回 txt 下载并通知主机
 - 反馈限流：同 IP 60 秒 1 条（429 + `Retry-After`），请求体 > 20KB 返回 413
-- 管理页：`/admin` 输入 token → `/admin/feedback?token=…` 查看记录；`/admin/feedback.csv?token=…` 导出 CSV
+- 管理页：`/admin` 输入 token → `/admin/feedback?token=…` 查看记录；支持 `&q=关键词` 搜索文件名/内容；`/admin/feedback.csv?token=…&q=…` 导出 CSV
 - `?feedback=1` / `#feedback` 自动打开反馈弹窗
 
 ## 启动器 v1.17.0
@@ -82,4 +82,4 @@
 1. 资源下载：Modrinth 代理/镜像。
 2. Marvis 评审或替代评审。
 3. Microsoft 登录（需要 Azure 客户端 ID）。
-4. 管理页反馈分类/搜索（CSV 导出已完成）。
+4. 管理页反馈分页/分类（搜索与 CSV 已完成）。
