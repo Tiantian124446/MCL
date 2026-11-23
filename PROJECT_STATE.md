@@ -35,6 +35,9 @@
   - Node 反代 `192.168.3.173:443 -> 192.168.201.129:7891`（https://pocket4）
   - hosts：`192.168.3.173 pocket4 / pocket4-MCL.com / www.pocket4-MCL.com`
 - 证书：自签 `host/cert/mcl.pfx`（SAN：pocket4 等三个名字），已导入本机 `LocalMachine\Root`
+- **桌面一键启动**：Win10 桌面 `一键启动服务器.bat`（调用 `C:\MCLServer\start_server.ps1`）；
+  已停止时启动服务器、运行中则提示已在运行，并顺带触发看护任务；日志 `C:\MCLServer\logs\start.log`
+  - 安装脚本 `tools/guest_install_oneclick.ps1`，同时随 `server/payload/oneclick.ps1` 每次部署自动重建
 - **开机自启**：虚拟机内 `MCLServerBoot`（ONSTART/SYSTEM）拉起服务器；主机 `MCLServerWatch`（每 2 分钟）
   负责启动 VM、同步 IP/hosts/端口转发、保活反向代理；若主机停在下拉登录界面，VM 要等登录后才会被拉起
 - 代理每次请求都会重读 `host/target.txt`（5 秒缓存），虚拟机 IP 变化后无需重启代理

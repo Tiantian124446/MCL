@@ -34,3 +34,12 @@ try {
   Start-Process -FilePath 'powershell.exe' -ArgumentList ('-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $Root + '\server.ps1"') -WindowStyle Hidden
   Log 'started server directly'
 }
+
+# 桌面“一键启动服务器”脚本（每次更新都确保存在）
+try {
+  $oneclick = Join-Path $Root 'oneclick.ps1'
+  if (Test-Path $oneclick) {
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $oneclick
+    Log 'oneclick script installed'
+  }
+} catch { Log ('oneclick install failed: ' + $_.Exception.Message) }
