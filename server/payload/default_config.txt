@@ -1,0 +1,5 @@
+player=Steve
+mirror=1
+autobackup=1
+isolation=0
+verCat=0

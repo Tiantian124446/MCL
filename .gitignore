@@ -35,3 +35,10 @@ resdl_debug.txt
 
 launcher.log
 launcher.log.old
+
+# 域名/证书相关（私钥与运行状态不入库）
+host/cert/
+host/proxy.log
+host/target.txt
+
+__pycache__/

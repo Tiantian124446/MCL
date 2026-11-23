@@ -2,9 +2,10 @@
 
 一个用 C++ / Win32 / GDI+ 编写的 Minecraft Java 版启动器，界面参考 PCL2，由 DSH 主设计、Marvis 协助、豆包测试。
 
-- 官网 / 下载 / BUG 反馈：<http://192.168.3.173:7891>（Windows 10 服务器）
+- 官网 / 下载 / BUG 反馈：<https://pocket4-MCL.com>（Win10 服务器；局域网回退 <http://192.168.3.173:7891>）
 - 最新版本：[GitHub Releases](https://github.com/Tiantian124446/MCL/releases)
 - 反馈文件会在服务器上保存为 `BUG反馈.txt`，并自动进入修复与重新发布流程。
+- 图标：绿色草方块（`res/mcl.ico`，多尺寸）
 
 ## 功能
 
@@ -23,7 +24,9 @@
 - 自动备份：启动时 24 小时内无 backups/auto_* 则后台复制整个 saves
 - 崩溃分析：读取 `crash-reports` 或 `latest.log`，识别内存 / Java / 模组 / OpenGL 等常见问题（F9）
 - 诊断信息：关于页一键导出系统 / Java / 目录 / 版本 / 模组 / 存档 / 日志 / 崩溃路径
-- 更新：启动时自动检查 Win10 发布服务器版本，官网 / 反馈入口
+- 更新：启动时自动检查 Win10 发布服务器版本（`https://pocket4-MCL.com`，域名不可达自动回退局域网地址），官网 / 反馈入口
+- 首次运行：没有任何配置文件时自动从服务器拉取默认配置
+- 自恢复保护：备份到 `%LOCALAPPDATA%\MCL\guard` 并注册登录还原，课堂管理软件清理后可自动回来；「关于」页可彻底删除
 - 界面：自绘 UI、等比缩放、全屏（F11）、深色日志区
 - 拖拽导入：把 .jar/.zip 拖进窗口，自动放入 mods 或资源包/光影目录
 - 资源搜索：资源包/光影卡片可直接打开 Modrinth 对应分类
@@ -34,17 +37,18 @@
 
 ## 构建
 
-需要 MinGW-w64 g++（支持 C++17）：
+需要 MinGW-w64 g++（支持 C++17）与 windres（图标资源）：
 
 ```powershell
+windres src\mcl.rc -O coff -o build\mcl_res.o
 g++ -std=c++17 -O2 -municode -mwindows `
   -finput-charset=UTF-8 -fexec-charset=UTF-8 -fwide-exec-charset=UTF-16LE `
   -o build\MCLauncher.exe `
-  src\main.cpp src\ui.cpp src\core.cpp src\http.cpp src\util.cpp `
+  src\main.cpp src\ui.cpp src\core.cpp src\http.cpp src\util.cpp build\mcl_res.o `
   -lgdiplus -lwinhttp -lcrypt32 -lole32 -loleaut32 -luuid -lshlwapi -ldwmapi -lcomctl32 -lws2_32 -static
 ```
 
-或运行 `build.ps1`。
+或运行 `build.ps1`（已包含 windres 步骤）。
 
 ## 发布服务器（Win10）
 

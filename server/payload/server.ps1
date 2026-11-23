@@ -147,6 +147,18 @@ function Handle-Request($client) {
       Send-Text $stream 200 $json 'application/json; charset=utf-8' @{}
       return
     }
+    if ($path -eq '/api/default-config') {
+      # 首次运行时启动器自动拉取的默认配置 (key=value 文本)
+      $cfg = Join-Path $Root 'default_config.txt'
+      if (Test-Path $cfg) {
+        Send-Text $stream 200 ([System.IO.File]::ReadAllText($cfg, [System.Text.Encoding]::UTF8)) 'text/plain; charset=utf-8' @{}
+      } else {
+        $def = "player=Steve`r`nmirror=1`r`nautobackup=1`r`nisolation=0`r`nverCat=0`r`n"
+        Send-Text $stream 200 $def 'text/plain; charset=utf-8' @{}
+      }
+      Log 'config: default-config served'
+      return
+    }
     if ($path -eq '/download/latest' -or $path -eq '/download') {
       $v = Read-Version
       $exe = Join-Path $DlDir $v.file

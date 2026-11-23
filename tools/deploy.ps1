@@ -20,9 +20,16 @@ if ((!$guestUser -or !$guestPass) -and (Test-Path $vmEnv)) {
 }
 if (-not $guestUser) { $guestUser = 'ThinkBook' }
 if (-not $guestPass) { throw 'MCL_VM_PASS not set (put it in E:\MCL\tools\vm.env, which is gitignored)' }
-$server = 'http://192.168.3.173:7891'
 
 function VmRun([string[]]$argv) { & $vmrun -T ws -gu $guestUser -gp $guestPass @argv }
+
+# 服务器地址: 优先用 vmrun 报告的 guest IP（VM 走 NAT, IP 会变）
+$server = 'http://192.168.3.173:7891'
+try {
+    $ipOut = (& $vmrun -T ws getGuestIPAddress $vmx -wait) 2>$null | Select-Object -Last 1
+    if ($ipOut -and $ipOut -match '^\d+\.\d+\.\d+\.\d+$') { $server = "http://$ipOut" + ':7891' }
+} catch { }
+Write-Host "server = $server"
 
 if (-not $SkipBuild) {
     Write-Host '== build =='

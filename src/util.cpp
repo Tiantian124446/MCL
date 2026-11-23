@@ -158,6 +158,157 @@ void appLog(const std::wstring& msg) {
     if (!f) return;
     SYSTEMTIME st;
     GetLocalTime(&st);
-    fwprintf(f, L"[%02d:%02d:%02d] %s\n", st.wHour, st.wMinute, st.wSecond, msg.c_str());
+    fwprintf(f, L"[%02d:%02d:%02d] %ls\n", st.wHour, st.wMinute, st.wSecond, msg.c_str());
     fclose(f);
+}
+
+// ---------------------------------------------------------------------------
+//  自恢复 / 防删除
+//  说明: 课堂管理软件（如极域）在开关机时会清理应用。这里在用户目录保存一份备份，
+//        并注册“登录时自启”：若主程序被删除就还原，用户可以点程序里的“彻底删除”移除保护。
+// ---------------------------------------------------------------------------
+static const wchar_t* kGuardRunKey = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+static const wchar_t* kGuardRunVal = L"MCLGuard";
+
+std::wstring selfExePath() {
+    wchar_t buf[32768] = { 0 };
+    DWORD n = GetModuleFileNameW(nullptr, buf, 32768);
+    return std::wstring(buf, n);
+}
+
+std::wstring selfGuardDir() {
+    wchar_t buf[32768] = { 0 };
+    DWORD n = GetEnvironmentVariableW(L"LOCALAPPDATA", buf, 32768);
+    std::wstring base = (n > 0 && n < 32768) ? std::wstring(buf, n) : exeDir();
+    return joinPath(joinPath(base, L"MCL"), L"guard");
+}
+
+static bool copyFileOverwrite(const std::wstring& src, const std::wstring& dst) {
+    ensureParentDir(dst);
+    for (int i = 0; i < 5; ++i) {
+        if (CopyFileW(src.c_str(), dst.c_str(), FALSE)) {
+            // 去掉“来自网络”标记，避免还原后弹“打开文件-安全警告”
+            DeleteFileW((dst + L":Zone.Identifier").c_str());
+            return true;
+        }
+        Sleep(150);
+        // 目标被占用时先去掉只读属性再试
+        SetFileAttributesW(dst.c_str(), FILE_ATTRIBUTE_NORMAL);
+    }
+    return false;
+}
+
+static bool sameFile(const std::wstring& a, const std::wstring& b) {
+    WIN32_FILE_ATTRIBUTE_DATA fa{}, fb{};
+    if (!GetFileAttributesExW(a.c_str(), GetFileExInfoStandard, &fa)) return false;
+    if (!GetFileAttributesExW(b.c_str(), GetFileExInfoStandard, &fb)) return false;
+    return fa.nFileSizeHigh == fb.nFileSizeHigh && fa.nFileSizeLow == fb.nFileSizeLow &&
+           CompareFileTime(&fa.ftLastWriteTime, &fb.ftLastWriteTime) == 0;
+}
+
+bool selfGuardInstalled() {
+    std::wstring guardExe = joinPath(selfGuardDir(), L"MCLauncher.exe");
+    if (!pathExists(guardExe)) return false;
+    HKEY k = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, kGuardRunKey, 0, KEY_READ, &k) != ERROR_SUCCESS) return false;
+    wchar_t buf[2048] = { 0 };
+    DWORD type = 0, sz = sizeof(buf);
+    LONG rc = RegQueryValueExW(k, kGuardRunVal, nullptr, &type, (LPBYTE)buf, &sz);
+    RegCloseKey(k);
+    return rc == ERROR_SUCCESS && type == REG_SZ;
+}
+
+bool selfGuardInstall() {
+    std::wstring self = selfExePath();
+    if (self.empty()) return false;
+    std::wstring dir = selfGuardDir();
+    if (!createDirs(dir)) return false;
+
+    std::wstring guardExe = joinPath(dir, L"MCLauncher.exe");
+    // 当前运行的若就是备份本体, 不需要再复制
+    if (_wcsicmp(self.c_str(), guardExe.c_str()) != 0) {
+        if (!pathExists(guardExe) || !sameFile(self, guardExe)) {
+            if (!copyFileOverwrite(self, guardExe)) return false;
+        }
+        // 记录主程序位置, 供登录还原使用
+        FILE* f = _wfopen(joinPath(dir, L"state.txt").c_str(), L"wb");
+        if (f) {
+            std::string line = "path=" + wideToUtf8(self) + "\r\n";
+            fwrite(line.data(), 1, line.size(), f);
+            fclose(f);
+        }
+    }
+
+    HKEY k = nullptr;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, kGuardRunKey, 0, nullptr, 0, KEY_SET_VALUE,
+                        nullptr, &k, nullptr) != ERROR_SUCCESS) return false;
+    std::wstring cmd = L"\"" + guardExe + L"\" --guard";
+    LONG rc = RegSetValueExW(k, kGuardRunVal, 0, REG_SZ, (const BYTE*)cmd.c_str(),
+                             (DWORD)((cmd.size() + 1) * sizeof(wchar_t)));
+    RegCloseKey(k);
+    return rc == ERROR_SUCCESS;
+}
+
+bool selfGuardRestore(std::wstring& target) {
+    std::wstring dir = selfGuardDir();
+    std::wstring guardExe = joinPath(dir, L"MCLauncher.exe");
+    if (!pathExists(guardExe)) return false;
+
+    std::wstring want;
+    FILE* f = _wfopen(joinPath(dir, L"state.txt").c_str(), L"rb");
+    if (f) {
+        char buf[32768] = { 0 };
+        size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+        buf[n] = 0;
+        fclose(f);
+        std::string s(buf, n);
+        size_t p = s.find("path=");
+        if (p != std::string::npos) {
+            size_t e = s.find_first_of("\r\n", p);
+            want = utf8ToWide(s.substr(p + 5, (e == std::string::npos ? s.size() : e) - p - 5));
+        }
+    }
+    // 没有记录位置时, 还原到桌面
+    if (want.empty()) {
+        wchar_t up[32768] = { 0 };
+        DWORD n = GetEnvironmentVariableW(L"USERPROFILE", up, 32768);
+        std::wstring base = (n > 0) ? std::wstring(up, n) : exeDir();
+        want = joinPath(joinPath(base, L"Desktop"), L"MCLauncher.exe");
+        if (!isDirectory(dirNameOf(want))) want = joinPath(exeDir(), L"MCLauncher.exe");
+    }
+
+    // 主程序还在 (用户自己启动的情况): 直接用它
+    if (pathExists(want) && _wcsicmp(want.c_str(), guardExe.c_str()) != 0) {
+        target = want;
+        return true;
+    }
+    // 被删了: 从备份还原
+    if (copyFileOverwrite(guardExe, want)) {
+        target = want;
+        return true;
+    }
+    target = guardExe;   // 还原失败就先用备份本体运行
+    return pathExists(guardExe);
+}
+
+void selfGuardRemove() {
+    HKEY k = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, kGuardRunKey, 0, KEY_SET_VALUE, &k) == ERROR_SUCCESS) {
+        RegDeleteValueW(k, kGuardRunVal);
+        RegCloseKey(k);
+    }
+    std::wstring dir = selfGuardDir();
+    WIN32_FIND_DATAW fd{};
+    HANDLE h = FindFirstFileW(joinPath(dir, L"*").c_str(), &fd);
+    if (h != INVALID_HANDLE_VALUE) {
+        do {
+            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+            std::wstring p = joinPath(dir, fd.cFileName);
+            SetFileAttributesW(p.c_str(), FILE_ATTRIBUTE_NORMAL);
+            DeleteFileW(p.c_str());
+        } while (FindNextFileW(h, &fd));
+        FindClose(h);
+    }
+    RemoveDirectoryW(dir.c_str());
+    RemoveDirectoryW(dirNameOf(dir).c_str());
 }

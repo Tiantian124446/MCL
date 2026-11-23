@@ -61,6 +61,10 @@ HttpClient::HttpClient(const std::wstring& host, bool https, INTERNET_PORT port)
     conn_ = WinHttpConnect(session_, host_.c_str(), port_, 0);
 }
 
+void HttpClient::setTimeoutMs(int connectMs, int sendMs, int recvMs) {
+    if (session_) WinHttpSetTimeouts(session_, connectMs, sendMs, recvMs, recvMs);
+}
+
 HttpClient::~HttpClient() {
     if (conn_) WinHttpCloseHandle(conn_);
     if (session_) WinHttpCloseHandle(session_);
@@ -70,7 +74,7 @@ namespace {
 
 // 在已建立的连接上发起 GET, 返回请求句柄(调用方关闭)
 HINTERNET sendGet(HINTERNET conn, const std::wstring& path, bool https,
-                  const std::wstring& ua, std::wstring& err) {
+                  const std::wstring& ua, bool insecure, std::wstring& err) {
     DWORD flags = https ? WINHTTP_FLAG_SECURE : 0;
     HINTERNET req = WinHttpOpenRequest(conn, L"GET", path.c_str(), nullptr,
                                        WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
@@ -81,6 +85,13 @@ HINTERNET sendGet(HINTERNET conn, const std::wstring& path, bool https,
 
     DWORD protocols = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2 | WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_3;
     WinHttpSetOption(req, WINHTTP_OPTION_SECURE_PROTOCOLS, &protocols, sizeof(protocols));
+
+    // 自建服务器使用自签证书: 仅对显式标记 insecure 的请求跳过证书校验
+    if (https && insecure) {
+        DWORD secFlags = SECURITY_FLAG_IGNORE_UNKNOWN_CA | SECURITY_FLAG_IGNORE_CERT_CN_INVALID |
+                         SECURITY_FLAG_IGNORE_CERT_DATE_INVALID | SECURITY_FLAG_IGNORE_CERT_WRONG_USAGE;
+        WinHttpSetOption(req, WINHTTP_OPTION_SECURITY_FLAGS, &secFlags, sizeof(secFlags));
+    }
 
     std::wstring headers = L"User-Agent: " + ua + L"\r\n";
     if (!WinHttpSendRequest(req, headers.c_str(), (DWORD)-1L,
@@ -111,7 +122,7 @@ HINTERNET sendGet(HINTERNET conn, const std::wstring& path, bool https,
 bool HttpClient::get(const std::wstring& path, std::string& out, std::wstring& err) {
     if (!conn_) { err = L"未连接 " + host_; return false; }
 
-    HINTERNET req = sendGet(conn_, path, https_, ua_, err);
+    HINTERNET req = sendGet(conn_, path, https_, ua_, insecure_, err);
     if (!req) return false;
 
     out.clear();
@@ -137,7 +148,7 @@ bool HttpClient::download(const std::wstring& path, const std::wstring& filePath
                           ProgressFn progress, std::wstring& err) {
     if (!conn_) { err = L"未连接 " + host_; return false; }
 
-    HINTERNET req = sendGet(conn_, path, https_, ua_, err);
+    HINTERNET req = sendGet(conn_, path, https_, ua_, insecure_, err);
     if (!req) return false;
 
     DWORD total = 0, sz = sizeof(total);
@@ -202,54 +213,65 @@ bool HttpClient::download(const std::wstring& path, const std::wstring& filePath
 
 // ---------------------------------------------------------------------------
 
-bool httpGetToString(const std::wstring& url, std::string& out, std::wstring& err) {
+bool httpGetToString(const std::wstring& url, std::string& out, std::wstring& err,
+                     bool insecureTls, int timeoutMs) {
     std::wstring host, path;
     bool https = false;
     INTERNET_PORT port = 0;
     if (!urlSplit(url, host, path, https, port)) { err = L"URL 解析失败"; return false; }
 
     HttpClient c(host, https, port);
+    if (timeoutMs > 0) c.setTimeoutMs(timeoutMs, timeoutMs, timeoutMs);
     if (!c.ok()) { err = L"无法连接 " + host; return false; }
+    c.setInsecureTls(insecureTls);
     return c.get(path, out, err);
 }
 
 bool httpDownloadToFile(const std::wstring& url, const std::wstring& filePath,
-                        ProgressFn progress, std::wstring& err) {
+                        ProgressFn progress, std::wstring& err,
+                        bool insecureTls, int timeoutMs) {
     std::wstring host, path;
     bool https = false;
     INTERNET_PORT port = 0;
     if (!urlSplit(url, host, path, https, port)) { err = L"URL 解析失败"; return false; }
 
     HttpClient c(host, https, port);
+    if (timeoutMs > 0) c.setTimeoutMs(timeoutMs, timeoutMs, timeoutMs);
     if (!c.ok()) { err = L"无法连接 " + host; return false; }
+    c.setInsecureTls(insecureTls);
     return c.download(path, filePath, progress, err);
 }
 
 // ---- 带自定义 User-Agent 的便捷接口 (MC 百科 / Modrinth 需要浏览器 UA) ----
 bool httpGetToStringEx(const std::wstring& url, const std::wstring& userAgent,
-                       std::string& out, std::wstring& err) {
+                       std::string& out, std::wstring& err,
+                       bool insecureTls, int timeoutMs) {
     std::wstring host, path;
     bool https = false;
     INTERNET_PORT port = 0;
     if (!urlSplit(url, host, path, https, port)) { err = L"URL 解析失败"; return false; }
 
     HttpClient c(host, https, port);
+    if (timeoutMs > 0) c.setTimeoutMs(timeoutMs, timeoutMs, timeoutMs);
     if (!c.ok()) { err = L"无法连接 " + host; return false; }
     c.setUserAgent(userAgent);
+    c.setInsecureTls(insecureTls);
     return c.get(path, out, err);
 }
 
 bool httpDownloadToFileEx(const std::wstring& url, const std::wstring& filePath,
                           const std::wstring& userAgent, ProgressFn progress,
-                          std::wstring& err) {
+                          std::wstring& err, bool insecureTls, int timeoutMs) {
     std::wstring host, path;
     bool https = false;
     INTERNET_PORT port = 0;
     if (!urlSplit(url, host, path, https, port)) { err = L"URL 解析失败"; return false; }
 
     HttpClient c(host, https, port);
+    if (timeoutMs > 0) c.setTimeoutMs(timeoutMs, timeoutMs, timeoutMs);
     if (!c.ok()) { err = L"无法连接 " + host; return false; }
     c.setUserAgent(userAgent);
+    c.setInsecureTls(insecureTls);
     return c.download(path, filePath, progress, err);
 }
 

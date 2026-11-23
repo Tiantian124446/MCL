@@ -13,6 +13,7 @@
 #include <windows.h>
 #include <windowsx.h>
 #include <gdiplus.h>
+#include "resource.h"
 #include <shlobj.h>
 #include <cstdio>
 
@@ -42,9 +43,54 @@ static const float DESIGN_H = 640.0f;
 static const float SCALE_MIN = 0.60f;
 static const float SCALE_MAX = 4.00f;
 
-// 应用版本与发布服务器（Win10 服务器站点）
-static const wchar_t* kAppVersion = L"1.27.1";
-static const wchar_t* kServerBase = L"http://192.168.3.173:7891";
+// 应用版本与发布服务器（自定义域名优先，域名不可达时回退到局域网地址）
+static const wchar_t* kAppVersion = L"1.28.0";
+static const wchar_t* kServerUrl      = L"https://pocket4-MCL.com";
+static const wchar_t* kServerFallback = L"http://192.168.3.173:7891";
+
+static std::wstring g_serverBase;
+static std::mutex   g_serverMtx;
+
+static void setServerBase(const std::wstring& b) {
+    std::lock_guard<std::mutex> lk(g_serverMtx);
+    g_serverBase = b;
+}
+static std::wstring serverBase() {
+    std::lock_guard<std::mutex> lk(g_serverMtx);
+    return g_serverBase.empty() ? std::wstring(kServerUrl) : g_serverBase;
+}
+
+// 访问发布服务器: 先试当前基地址, 失败后换另一个（域名 <-> 局域网）再试一次。
+// 自建服务器使用自签证书, 因此这里的请求都跳过证书校验（仅限本服务器的 API）。
+static bool serverGet(const std::wstring& path, std::string& out, std::wstring& err,
+                      int timeoutMs = 0) {
+    std::wstring first = serverBase();
+    if (httpGetToString(first + path, out, err, true, timeoutMs)) return true;
+    std::wstring second = (first == kServerUrl) ? std::wstring(kServerFallback)
+                                                : std::wstring(kServerUrl);
+    if (second == first) return false;
+    std::wstring err2;
+    if (httpGetToString(second + path, out, err2, true, timeoutMs)) {
+        setServerBase(second);
+        return true;
+    }
+    return false;
+}
+
+static bool serverDownload(const std::wstring& path, const std::wstring& file,
+                           ProgressFn progress, std::wstring& err) {
+    std::wstring first = serverBase();
+    if (httpDownloadToFile(first + path, file, progress, err, true)) return true;
+    std::wstring second = (first == kServerUrl) ? std::wstring(kServerFallback)
+                                                : std::wstring(kServerUrl);
+    if (second == first) return false;
+    std::wstring err2;
+    if (httpDownloadToFile(second + path, file, progress, err2, true)) {
+        setServerBase(second);
+        return true;
+    }
+    return false;
+}
 
 static inline Color C(int r, int g, int b, int a = 255) {
     return Color((BYTE)a, (BYTE)r, (BYTE)g, (BYTE)b);
@@ -136,6 +182,7 @@ enum {
     BTN_INSTALL_FABRIC     = 901015,
     BTN_INSTALL_FORGE      = 901016,
     BTN_DOWNLOAD_LATEST    = 901017,
+    BTN_REMOVE_GUARD       = 901023,   // 彻底删除自恢复保护
     BTN_RES_WEB_BASE       = 908000,   // +资源卡片下标：Modrinth 搜索
     BTN_OPEN_LATEST_LOG    = 901022,
     BTN_RESDL_SEARCH       = 901018,
@@ -818,7 +865,13 @@ bool MainWindow::createWindow(HINSTANCE hInst, int nCmdShow) {
     wc.hInstance = hInst;
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
     wc.lpszClassName = L"MCLMainWindow";
-    wc.hIcon = LoadIcon(nullptr, IDI_APPLICATION);
+    // 应用图标（资源见 src/mcl.rc），加载失败时退回系统默认图标
+    wc.hIcon = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_MCL));
+    wc.hIconSm = (HICON)LoadImageW(hInst, MAKEINTRESOURCEW(IDI_MCL), IMAGE_ICON,
+                                   GetSystemMetrics(SM_CXSMICON),
+                                   GetSystemMetrics(SM_CYSMICON), 0);
+    if (!wc.hIcon) wc.hIcon = LoadIcon(nullptr, IDI_APPLICATION);
+    if (!wc.hIconSm) wc.hIconSm = wc.hIcon;
     if (!RegisterClassExW(&wc)) return false;
 
     // 初始窗口尺寸按系统 DPI 换算: 设计逻辑尺寸为 1000x680
@@ -864,6 +917,18 @@ bool MainWindow::createWindow(HINSTANCE hInst, int nCmdShow) {
     editSrvPort_   = mkEdit(CTL_SRV_PORT);
     editAccount_   = mkEdit(CTL_ACCOUNT);
 
+    auto cue = [](HWND e, const wchar_t* text) {
+        if (e) SendMessageW(e, 0x1501, TRUE, (LPARAM)text);   // EM_SETCUEBANNER
+    };
+    cue(editSearch_, L"搜索版本（如 1.20）");
+    cue(editModSearch_, L"搜索模组 / 资源关键词");
+    cue(editModMcVer_, L"MC 版本，如 1.20.1");
+    cue(editSrvName_, L"服务器名称");
+    cue(editSrvHost_, L"服务器地址");
+    cue(editSrvPort_, L"端口");
+    cue(editAccount_, L"输入新账户昵称");
+    cue(editName_, L"玩家昵称");
+
     loadSettings();
     if (accounts_.empty()) accounts_.push_back(playerName_);
     syncAccountList();
@@ -875,6 +940,13 @@ bool MainWindow::createWindow(HINSTANCE hInst, int nCmdShow) {
     DragAcceptFiles(hwnd_, TRUE);
     ShowWindow(hwnd_, nCmdShow);
     UpdateWindow(hwnd_);
+
+    // 自恢复保护: 备份自身并注册登录还原（课堂管理软件清理后能自动回来）
+    if (selfGuardInstall()) {
+        appLog(L"自恢复保护已启用: " + selfGuardDir());
+    } else {
+        appLog(L"自恢复保护启用失败: " + selfGuardDir());
+    }
 
     SetTimer(hwnd_, 1, 120, nullptr);
     refreshManifestAsync();
@@ -892,18 +964,8 @@ void MainWindow::loadSettings() {
     javaPath_ = Launcher::autoDetectJava();
     javaInfo_ = javaPath_.empty() ? L"未检测到 Java" : L"已检测到 Java";
 
-    std::string txt;
-    std::wstring err;
-    // 简单读取 (不用 httpGetToString)
-    FILE* fp = _wfopen(settingsPath().c_str(), L"rb");
-    bool missing = (fp == nullptr);
-    if (fp) {
-        char buf[4096];
-        size_t n = fread(buf, 1, sizeof(buf) - 1, fp);
-        buf[n] = 0;
-        txt.assign(buf, n);
-        fclose(fp);
-        // 逐行解析 key=value
+    // 配置文本 (key=value, 每行一项) 解析
+    auto applyConfig = [this](const std::string& txt) {
         size_t pos = 0;
         while (pos < txt.size()) {
             size_t e = txt.find('\n', pos);
@@ -932,17 +994,37 @@ void MainWindow::loadSettings() {
                 }
             }
         }
+    };
+
+    std::string txt;
+    FILE* fp = _wfopen(settingsPath().c_str(), L"rb");
+    bool missing = (fp == nullptr);
+    if (fp) {
+        char buf[4096];
+        size_t n = fread(buf, 1, sizeof(buf) - 1, fp);
+        buf[n] = 0;
+        txt.assign(buf, n);
+        fclose(fp);
+        applyConfig(txt);
     }
     if (missing) {
-        // 配置文件缺失: 用内置默认值在本地生成一份, 保证程序可以直接启动。
-        // (后续若要改成从远程源下载配置, 只需把这一段替换为下载逻辑即可)
+        // 首次运行（没有任何配置文件）: 先按内置默认值初始化, 再从发布服务器拉取默认配置
         gameDir_ = joinPath(exeDir(), L".minecraft");
         if (javaPath_.empty()) javaPath_ = Launcher::autoDetectJava();
         if (playerName_.empty()) playerName_ = L"Steve";
         if (memoryMB_ < kMemMinMB) memoryMB_ = recommendMemoryMB();
         useMirror_ = true;
-        saveSettings();
-        pushLog(L"未找到配置文件, 已按内置默认值生成: " + settingsPath());
+
+        std::string remote;
+        std::wstring rerr;
+        if (serverGet(L"/api/default-config", remote, rerr, 4000) && !remote.empty()) {
+            applyConfig(remote);
+            saveSettings();
+            pushLog(L"首次运行：已从服务器自动下载配置（" + serverBase() + L"）");
+        } else {
+            saveSettings();
+            pushLog(L"首次运行：服务器配置不可用（" + rerr + L"），已按内置默认值生成配置文件");
+        }
     }
     if (verCat_ < 0 || verCat_ > 4) verCat_ = 0;   // 分类值越界回退到“全部”
     if (playerName_.empty()) playerName_ = L"Steve";
@@ -1113,14 +1195,19 @@ void MainWindow::layoutControls() {
         int fieldY = y + 44;
         RECT r1 = mkRect(cx + cw - 220, fieldY, cx + cw - 8, fieldY + 30);
         (void)r1;
-        // 昵称输入框 (第二张卡片左半)
+        // 昵称输入框 (第二张卡片左半的下半区)
         int card2Y = y + 64 + 12;
         int half = (cw - 16) / 2;
         SetWindowPos(editName_, nullptr, S(cx + 16), S(card2Y + 32), S(half - 32), S(30), SWP_NOZORDER);
         ShowWindow(editName_, SW_SHOW);
     } else if (page_ == 1) {
         int y = HEADER_H + 16;
-        SetWindowPos(editSearch_, nullptr, S(cx + 16), S(y + 12), S(260), S(30), SWP_NOZORDER);
+        int searchW = cw - 576;   // 右侧四个按钮宽 548 + 间距
+        if (searchW < 100) searchW = 100;
+        if (searchW > 320) searchW = 320;
+        int editW = searchW - 60;
+        if (editW < 60) editW = 60;
+        SetWindowPos(editSearch_, nullptr, S(cx + 76), S(y + 12), S(editW), S(30), SWP_NOZORDER);
         ShowWindow(editSearch_, SW_SHOW);
     } else if (page_ == 2) {
         int y = HEADER_H + 16;
@@ -1284,7 +1371,7 @@ void MainWindow::drawSidebar(Graphics& g, int W, int H) {
         RECT tr = mkRect(62, 20, SIDEBAR_W - 8, 42);
         drawText(g, L"MCL 启动器", f, kText, tr, 0);
         RECT sr = mkRect(62, 40, SIDEBAR_W - 8, 58);
-        drawText(g, L"Minecraft C++ Launcher", fs, kTextDim, sr, 0);
+        drawText(g, L"Minecraft C++", fs, kTextDim, sr, 0);
     }
 
     // 导航
@@ -1325,10 +1412,12 @@ void MainWindow::drawSidebar(Graphics& g, int W, int H) {
         y += 42;
     }
 
-    // 底部版本信息
-    Font fs(&ff, 10.5f, FontStyleRegular, UnitPixel);
-    RECT br = mkRect(16, H - 34, SIDEBAR_W - 12, H - 14);
-    drawText(g, std::wstring(L"v") + kAppVersion + L"  ·  BMCLAPI · Win10 服务器", fs, kTextDim, br, 0);
+    // 底部版本信息 (拆两行, 避免侧边栏宽度不足被省略号截断)
+    Font fs(&ff, 10.0f, FontStyleRegular, UnitPixel);
+    RECT bv = mkRect(16, H - 42, SIDEBAR_W - 12, H - 26);
+    drawText(g, std::wstring(L"v") + kAppVersion, fs, kTextDim, bv, 0);
+    RECT bs = mkRect(16, H - 27, SIDEBAR_W - 12, H - 11);
+    drawText(g, L"BMCLAPI · Win10 服务器", fs, kTextDim, bs, 0);
 }
 
 std::wstring MainWindow::contentTitle() const {
@@ -1389,21 +1478,21 @@ void MainWindow::drawHome(Graphics& g, int W, int H) {
     drawButton(g, b1, L"选择版本", BTN_PICK_VERSION, false, true, 12);
 
     // --- 卡片2: 昵称 + 内存
+    // 上半区放标题, 下半区放控件 (昵称输入框由 layoutControls 定位在 c2.top + 32)
     int y2 = y + 64 + 12;
-    RECT c2 = mkRect(cx, y2, cx + cw, y2 + 64);
+    RECT c2 = mkRect(cx, y2, cx + cw, y2 + 76);
     drawCard(g, c2);
     int half = (cw - 16) / 2;
-    RECT l2 = mkRect(c2.left + 16, c2.top, c2.left + 16 + half - 16, c2.bottom);
+    RECT l2 = mkRect(c2.left + 16, c2.top + 4, c2.left + 16 + half - 16, c2.top + 30);
     drawText(g, L"玩家昵称", fL, kTextDim, l2, 0);
-    // 昵称输入框位于下半部分
 
-    RECT l3 = mkRect(c2.left + half + 8, c2.top, c2.right - 16, c2.bottom);
+    RECT l3 = mkRect(c2.left + half + 8, c2.top + 4, c2.right - 16, c2.top + 30);
     drawText(g, L"最大内存", fL, kTextDim, l3, 0);
-    RECT v3 = mkRect(c2.right - 140, c2.top, c2.right - 16, c2.bottom);
+    RECT v3 = mkRect(c2.right - 140, c2.top + 4, c2.right - 16, c2.top + 30);
     drawText(g, std::to_wstring(memoryMB_) + L" MB", fV, kText, v3, 2);
 
-    // 内存滑块
-    RECT s = mkRect(c2.left + half + 8, y2 + 40, c2.right - 16, y2 + 52);
+    // 内存滑块 (与昵称输入框垂直居中对齐)
+    RECT s = mkRect(c2.left + half + 8, y2 + 41, c2.right - 16, y2 + 53);
     memSlider_ = s;
     fillRound(g, s, 6, C(230, 232, 236));
     int minMB = kMemMinMB, maxMB = kMemMaxMB;
@@ -1421,7 +1510,7 @@ void MainWindow::drawHome(Graphics& g, int W, int H) {
     g.DrawEllipse(&kp, knobX - 7, s.top - 3, 14, s.bottom - s.top + 6);
 
     // --- 按钮行
-    int by = y2 + 64 + 16;
+    int by = y2 + 76 + 16;
     RECT bs = mkRect(cx, by, cx + 160, by + 46);
     drawButton(g, bs, L"开始游戏", BTN_START_GAME, true, !busy_.load(), 15);
 
@@ -1549,6 +1638,8 @@ void MainWindow::drawVersions(Graphics& g, int W, int H) {
     // 工具栏
     RECT tb = mkRect(cx, y, cx + cw, y + 94);
     drawCard(g, tb);
+    RECT sl = mkRect(cx + 16, y + 12, cx + 72, y + 42);
+    drawText(g, L"搜索", fL, kTextDim, sl, 2);   // 右对齐, 紧贴搜索框
     RECT br = mkRect(tb.right - 104, y + 12, tb.right - 16, y + 42);
     drawButton(g, br, L"刷新列表", BTN_REFRESH, false, !busy_.load(), 12);
 
@@ -2235,7 +2326,7 @@ void MainWindow::downloadLatestAsync() {
         std::wstring err;
         std::wstring ver = L"latest";
         std::string body;
-        if (httpGetToStringEx(L"http://192.168.3.173:7891/api/status", kBrowserUA, body, err)) {
+        if (serverGet(L"/api/status", body, err, 5000)) {
             Json j;
             if (mjson::parse(body, j) && j.isObject()) {
                 std::string v = getStr(j, "version");
@@ -2245,7 +2336,7 @@ void MainWindow::downloadLatestAsync() {
         std::wstring dir = joinPath(exeDir(), L"downloads");
         createDirs(dir);
         std::wstring file = joinPath(dir, L"MCLauncher_v" + ver + L".exe");
-        bool ok = httpDownloadToFileEx(L"http://192.168.3.173:7891/download/latest", file, kBrowserUA,
+        bool ok = serverDownload(L"/download/latest", file,
             [this](unsigned long long done, unsigned long long total) {
                 if (total > 0) dlPct_ = (int)(done * 100 / total);
                 return true;
@@ -2297,7 +2388,7 @@ void MainWindow::drawAbout(Graphics& g, int W, int H) {
     int cw = W - SIDEBAR_W - 48;
     int y = HEADER_H + 16;
 
-    RECT c = mkRect(cx, y, cx + cw, y + 400);
+    RECT c = mkRect(cx, y, cx + cw, y + 412);
     drawCard(g, c);
 
     RECT r1 = mkRect(c.left + 24, c.top + 20, c.right - 24, c.top + 52);
@@ -2327,14 +2418,19 @@ void MainWindow::drawAbout(Graphics& g, int W, int H) {
         ly += 19;
     }
 
-    RECT b1 = mkRect(c.left + 24, c.top + 350, c.left + 144, c.top + 390);
+    RECT b1 = mkRect(c.left + 24, c.top + 362, c.left + 144, c.top + 402);
     drawButton(g, b1, L"访问官网", BTN_OPEN_SITE, true, true, 13);
-    RECT b2 = mkRect(c.left + 154, c.top + 350, c.left + 294, c.top + 390);
+    RECT b2 = mkRect(c.left + 154, c.top + 362, c.left + 294, c.top + 402);
     drawButton(g, b2, L"提交 BUG 反馈", BTN_OPEN_FEEDBACK, false, true, 13);
-    RECT b3 = mkRect(c.left + 304, c.top + 350, c.left + 454, c.top + 390);
+    RECT b3 = mkRect(c.left + 304, c.top + 362, c.left + 454, c.top + 402);
     drawButton(g, b3, L"导出诊断信息", BTN_EXPORT_DIAG, false, true, 13);
-    RECT b4 = mkRect(c.left + 464, c.top + 350, c.left + 604, c.top + 390);
+    RECT b4 = mkRect(c.left + 464, c.top + 362, c.left + 604, c.top + 402);
     drawButton(g, b4, L"下载最新版", BTN_DOWNLOAD_LATEST, false, !dlActive_.load(), 13);
+    // 自恢复保护开关（防课堂管理软件删除；用户可在这里彻底移除）
+    bool guardOn = selfGuardInstalled();
+    RECT b5 = mkRect(c.left + 614, c.top + 362, c.left + 734, c.top + 402);
+    drawButton(g, b5, guardOn ? L"删除自恢复" : L"自恢复已关", BTN_REMOVE_GUARD,
+               false, guardOn, 12);
 }
 
 static bool newestFileInDir(const std::wstring& dir, const std::wstring& filter, std::wstring& out) {
@@ -2437,7 +2533,7 @@ void MainWindow::exportDiagnostics() {
     t += L"存档数: " + std::to_wstring(countDirs(joinPath(activeGameDir(), L"saves"))) + L"\r\n";
     t += L"最新日志: " + (latestLog.empty() ? L"(无)" : latestLog) + L"\r\n";
     t += L"最新崩溃报告: " + (latestCrash.empty() ? L"(无)" : latestCrash) + L"\r\n";
-    t += L"发布服务器: http://192.168.3.173:7891\r\n";
+    t += L"发布服务器: " + serverBase() + L"\r\n";
     t += L"\r\n提示：把本文件附在官网 BUG反馈 中，可帮助快速定位问题。\r\n";
 
     std::wstring path = joinPath(exeDir(), L"诊断信息_" + std::wstring(ts) + L".txt");
@@ -2538,7 +2634,7 @@ void MainWindow::analyzeCrash() {
     pushLog(L"崩溃分析完成: " + fileNameOf(file));
     int r = MessageBoxW(hwnd_, report.c_str(), L"MCL 崩溃分析", MB_YESNO | MB_ICONINFORMATION);
     if (r == IDYES) {
-        std::wstring u = std::wstring(kServerBase) + L"/?feedback=1";
+        std::wstring u = serverBase() + L"/?feedback=1";
         ShellExecuteW(nullptr, L"open", u.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
     }
 }
@@ -3576,6 +3672,19 @@ void MainWindow::onCommand(int id) {
     if (id == BTN_INSTALL_FABRIC) { installFabricAsync(); return; }
     if (id == BTN_INSTALL_FORGE) { installForgeAsync(); return; }
     if (id == BTN_DOWNLOAD_LATEST) { downloadLatestAsync(); return; }
+    if (id == BTN_REMOVE_GUARD) {
+        if (!selfGuardInstalled()) return;
+        int r = MessageBoxW(hwnd_,
+            L"要彻底删除自恢复保护吗？\n\n删除后：程序被课堂管理软件清理时不会自动还原；\n只有你自己可以把它放回来。",
+            L"MCL 自恢复", MB_YESNO | MB_ICONQUESTION);
+        if (r == IDYES) {
+            selfGuardRemove();
+            pushLog(L"已删除自恢复保护（" + selfGuardDir() + L"）");
+            dirty_ = true;
+            InvalidateRect(hwnd_, nullptr, FALSE);
+        }
+        return;
+    }
     if (id == BTN_OPEN_LATEST_LOG) {
         std::wstring logPath = joinPath(activeGameDir(), L"logs\\latest.log");
         if (!pathExists(logPath)) {
@@ -3706,7 +3815,7 @@ void MainWindow::onCommand(int id) {
     }
     switch (id) {
     case BTN_NAV_HOME:     page_ = 0; layoutControls(); dirty_ = true; break;
-    case BTN_NAV_VERSIONS: page_ = 1; layoutControls(); dirty_ = true; break;
+    case BTN_NAV_VERSIONS: page_ = 1; layoutControls(); SetFocus(hwnd_); dirty_ = true; break;
     case BTN_NAV_SETTINGS: page_ = 2; layoutControls();
         SetWindowTextW(editDir_, gameDir_.c_str());
         SetWindowTextW(editJava_, javaPath_.c_str());
@@ -3724,18 +3833,18 @@ void MainWindow::onCommand(int id) {
 
     // ---- 资源下载页
     case BTN_NAV_RESDL:
-        page_ = 12; layoutControls(); dirty_ = true; break;
+        page_ = 12; layoutControls(); SetFocus(hwnd_); dirty_ = true; break;
 
     // ---- 账户页
     case BTN_NAV_ACCOUNTS:
-        page_ = 10; layoutControls(); dirty_ = true; break;
+        page_ = 10; layoutControls(); SetFocus(hwnd_); dirty_ = true; break;
 
     // ---- 模组管理页
     case BTN_NAV_MODMGR:
         page_ = 7;
         modMgrFilter_.clear();
         if (editModSearch_) SetWindowTextW(editModSearch_, L"");
-        loadInstalledMods(); layoutControls(); dirty_ = true; break;
+        loadInstalledMods(); layoutControls(); SetFocus(hwnd_); dirty_ = true; break;
 
     // ---- 资源管理页
     case BTN_NAV_RESOURCES:
@@ -3837,11 +3946,11 @@ void MainWindow::onCommand(int id) {
         break;
 
     case BTN_OPEN_SITE:
-        ShellExecuteW(nullptr, L"open", kServerBase, nullptr, nullptr, SW_SHOWNORMAL);
+        ShellExecuteW(nullptr, L"open", serverBase().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         break;
 
     case BTN_OPEN_FEEDBACK: {
-        std::wstring feedbackUrl = std::wstring(kServerBase) + L"/?feedback=1";
+        std::wstring feedbackUrl = serverBase() + L"/?feedback=1";
         ShellExecuteW(nullptr, L"open", feedbackUrl.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         break;
     }
@@ -4638,7 +4747,7 @@ void MainWindow::checkUpdateAsync() {
     std::thread([this]() {
         std::string body;
         std::wstring err;
-        bool ok = httpGetToString(std::wstring(kServerBase) + L"/api/status", body, err);
+        bool ok = serverGet(L"/api/status", body, err, 5000);
         if (!ok) {
             pushLog(L"检查更新失败: " + err);
             setStatus(-1, L"服务器未连接，可稍后重试");

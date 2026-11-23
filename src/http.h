@@ -26,6 +26,12 @@ public:
     // 自定义 User-Agent (必须在首次请求前调用)
     void setUserAgent(const std::wstring& ua) { ua_ = ua; }
 
+    // 忽略服务器证书错误 (仅用于自建服务器; 必须在首次请求前调用)
+    void setInsecureTls(bool on) { insecure_ = on; }
+
+    // 自定义超时 (毫秒, 必须在首次请求前调用)
+    void setTimeoutMs(int connectMs, int sendMs, int recvMs);
+
     // path 形如 "/mc/game/version_manifest.json"
     bool get(const std::wstring& path, std::string& out, std::wstring& err);
     bool download(const std::wstring& path, const std::wstring& filePath,
@@ -36,6 +42,7 @@ private:
     HINTERNET conn_ = nullptr;
     std::wstring host_;
     bool https_ = true;
+    bool insecure_ = false;
     INTERNET_PORT port_ = 0;
     std::wstring ua_ = L"MCL/1.0 (Windows NT; C++ Minecraft Launcher)";
 };
@@ -45,16 +52,19 @@ bool urlSplit(const std::wstring& url, std::wstring& host, std::wstring& path,
               bool& https, INTERNET_PORT& port);
 
 // 一次性便捷接口
-bool httpGetToString(const std::wstring& url, std::string& out, std::wstring& err);
+bool httpGetToString(const std::wstring& url, std::string& out, std::wstring& err,
+                     bool insecureTls = false, int timeoutMs = 0);
 bool httpDownloadToFile(const std::wstring& url, const std::wstring& filePath,
-                        ProgressFn progress, std::wstring& err);
+                        ProgressFn progress, std::wstring& err,
+                        bool insecureTls = false, int timeoutMs = 0);
 
 // 同上, 但可自定义 User-Agent (MC 百科 / Modrinth 需要浏览器 UA)
 bool httpGetToStringEx(const std::wstring& url, const std::wstring& userAgent,
-                       std::string& out, std::wstring& err);
+                       std::string& out, std::wstring& err,
+                       bool insecureTls = false, int timeoutMs = 0);
 bool httpDownloadToFileEx(const std::wstring& url, const std::wstring& filePath,
                           const std::wstring& userAgent, ProgressFn progress,
-                          std::wstring& err);
+                          std::wstring& err, bool insecureTls = false, int timeoutMs = 0);
 
 // 网络是否可用
 bool netIsOnline();

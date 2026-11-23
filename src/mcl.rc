@@ -1,0 +1,6 @@
+// mcl.rc - 资源脚本（图标等）
+#include <windows.h>
+#include "resource.h"
+
+// 应用图标：绿色草方块（多尺寸 16~256）
+IDI_MCL ICON "../res/mcl.ico"
