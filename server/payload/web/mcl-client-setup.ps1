@@ -7,13 +7,14 @@
 #  需要管理员权限（右键“以管理员身份运行”）。
 # ---------------------------------------------------------------------------
 param(
-    [string]$ServerIp = ''
+    [string]$ServerIp = '',
+    [switch]$NoPause
 )
 
 $ErrorActionPreference = 'Continue'
 $Host.UI.RawUI.WindowTitle = 'MCL 校园网配置'
 
-function Pause2 { Write-Host ''; Write-Host '按任意键退出...' -ForegroundColor DarkGray; $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') }
+function Pause2 { if ($NoPause) { return }; Write-Host ''; Write-Host '按任意键退出...' -ForegroundColor DarkGray; $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') }
 
 $id = [Security.Principal.WindowsIdentity]::GetCurrent()
 $pr = New-Object Security.Principal.WindowsPrincipal($id)
