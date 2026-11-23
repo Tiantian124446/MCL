@@ -90,6 +90,20 @@ try {
     $proxy = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
              Where-Object { $_.CommandLine -like '*https_proxy.js*' }
 } catch {}
+
+# 代理在跑但 443 没监听在当前主机 IP 上（主机 IP 变了 / 监听丢失）→ 重启
+$listenOk = $false
+try {
+    $conns = Get-NetTCPConnection -State Listen -LocalPort 443 -ErrorAction SilentlyContinue
+    if ($hostIp) { $listenOk = [bool]($conns | Where-Object { $_.LocalAddress -eq $hostIp }) }
+} catch {}
+if ($proxy -and -not $listenOk) {
+    Log 'proxy listener missing (host ip changed?), restarting'
+    $proxy | ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force } catch {} }
+    Start-Sleep -Milliseconds 600
+    $proxy = $null
+}
+
 if (-not $proxy) {
     try {
         Start-Process -FilePath $node -ArgumentList "`"$root\host\https_proxy.js`"" -WindowStyle Hidden

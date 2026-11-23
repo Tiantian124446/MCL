@@ -37,6 +37,8 @@
 - 证书：自签 `host/cert/mcl.pfx`（SAN：pocket4 等三个名字），已导入本机 `LocalMachine\Root`
 - **开机自启**：虚拟机内 `MCLServerBoot`（ONSTART/SYSTEM）拉起服务器；主机 `MCLServerWatch`（每 2 分钟）
   负责启动 VM、同步 IP/hosts/端口转发、保活反向代理；若主机停在下拉登录界面，VM 要等登录后才会被拉起
+- 代理每次请求都会重读 `host/target.txt`（5 秒缓存），虚拟机 IP 变化后无需重启代理
+- 三个计划任务均已关闭“仅交流电时运行/电池停止”限制（笔记本用电池时也能自愈）
 - **禁止自动关机**：虚拟机已关闭睡眠/休眠、自动更新与自动重启（`tools/guest_server_safe.ps1`）
 - 账户：`ThinkBook`（管理员组），密码在 `E:\MCL\tools\vm.env`（**不提交**）
 - 目录：`C:\MCLServer`；计划任务 `MCLServer` / `MCLServerWatchdog`

@@ -14,21 +14,29 @@ const BASE = 'E:/MCL/host';
 const PFX = path.join(BASE, 'cert', 'mcl.pfx');
 const PFX_PASS = process.env.MCL_CERT_PASS || 'MCLCert2026!';
 
-// 后端地址: 优先 host/target.txt (tools\update_domain.ps1 会写入), 否则用环境变量/默认值
+// 后端地址: 优先 host/target.txt (看护任务会写入), 否则用环境变量/默认值
+// 每次请求都会重新读取(带 5 秒缓存), 虚拟机 IP 变化后无需重启代理
+let _targetCache = null;
+let _targetCacheAt = 0;
 function readTarget() {
+  const now = Date.now();
+  if (_targetCache && now - _targetCacheAt < 5000) return _targetCache;
+  let t = null;
   try {
     const s = fs.readFileSync(path.join(BASE, 'target.txt'), 'utf8').trim();
     const m = /^([\d.]+):(\d+)$/.exec(s);
-    if (m) return { host: m[1], port: parseInt(m[2], 10) };
+    if (m) t = { host: m[1], port: parseInt(m[2], 10) };
   } catch (e) {}
-  return {
-    host: process.env.MCL_TARGET_HOST || '192.168.201.129',
-    port: parseInt(process.env.MCL_TARGET_PORT || '7891', 10),
-  };
+  if (!t) {
+    t = {
+      host: process.env.MCL_TARGET_HOST || '192.168.201.129',
+      port: parseInt(process.env.MCL_TARGET_PORT || '7891', 10),
+    };
+  }
+  _targetCache = t;
+  _targetCacheAt = now;
+  return t;
 }
-const TARGET = readTarget();
-const TARGET_HOST = TARGET.host;
-const TARGET_PORT = TARGET.port;
 // 默认监听本机局域网地址（0.0.0.0:443 常被 Steam++ 等程序占用）
 function detectBind() {
   if (process.env.MCL_BIND) return process.env.MCL_BIND;
@@ -53,13 +61,14 @@ function log(msg) {
 }
 
 function forward(req, res) {
+  const target = readTarget();
   const headers = Object.assign({}, req.headers);
-  headers['host'] = TARGET_HOST + ':' + TARGET_PORT;
+  headers['host'] = target.host + ':' + target.port;
   headers['x-forwarded-host'] = req.headers.host || '';
   headers['x-forwarded-proto'] = 'https';
   const opts = {
-    host: TARGET_HOST,
-    port: TARGET_PORT,
+    host: target.host,
+    port: target.port,
     method: req.method,
     path: req.url,
     headers: headers,
@@ -89,17 +98,19 @@ try {
 const server = https.createServer(tls, forward);
 server.on('error', (e) => { log('https listen error: ' + BIND + ':443 ' + e.message); });
 server.listen(443, BIND, () => {
-  log('https://pocket4-MCL.com:443 (' + BIND + ') -> http://' + TARGET_HOST + ':' + TARGET_PORT);
+  const t = readTarget();
+  log('https://pocket4:443 (' + BIND + ') -> http://' + t.host + ':' + t.port);
 });
 
 const lan = http.createServer(forward);
 lan.on('error', (e) => { log('lan listen error: ' + BIND + ':7891 ' + e.message); });
 lan.listen(7891, BIND, () => {
-  log('http://' + BIND + ':7891 -> http://' + TARGET_HOST + ':' + TARGET_PORT + ' (LAN fallback)');
+  const t = readTarget();
+  log('http://' + BIND + ':7891 -> http://' + t.host + ':' + t.port + ' (LAN fallback)');
 });
 
 const redir = http.createServer((req, res) => {
-  const host = (req.headers.host || 'pocket4-MCL.com').split(':')[0];
+  const host = (req.headers.host || 'pocket4').split(':')[0];
   res.writeHead(301, { location: 'https://' + host + req.url });
   res.end();
 });
