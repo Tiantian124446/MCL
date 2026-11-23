@@ -20,7 +20,8 @@
 - 一键部署：`E:\MCL\tools\deploy.ps1 [-Version x.y.z] [-Notes ...]`
 - 域名/端口修复：`E:\MCL\tools\update_domain.ps1`（主机 IP 或 VM IP 变化后运行）
 - 自愈看护：`E:\MCL\tools\server_watchdog.ps1`（计划任务 `MCLServerWatch`，每 2 分钟；`MCLServerWatchLogon` 登录时）
-- 反向代理：`E:\MCL\host\https_proxy.js`（计划任务 `MCLProxy`，开机自启）
+- 反向代理：`E:\MCL\host\https_proxy.js`（计划任务 `MCLProxy`，开机自启；监听所有网卡的 443/8443）
+- 校园网客户端配置：`tools/mcl-client-setup.ps1/.bat`（同时发布在 `server/payload/web/`）
 - GitHub 工具：`E:\MCL\tools\gh.ps1`（whoami / ensureRepo / push / release / syncasset）
 - 主机反馈接收：`http://192.168.3.155:8098/feedback` → `E:\MCL\feedback`
 
@@ -31,9 +32,13 @@
   - 2026-11-23 修复：guest 之前残留静态 IP `192.168.3.173`（与主机 WLAN 冲突且不在 NAT 网段），
     已恢复 DHCP；**主机 WLAN 始终是 DHCP，未做任何网卡修改**
 - 主机转发：
-  - `netsh portproxy 192.168.3.173:7891 -> 192.168.201.129:7891`
-  - Node 反代 `192.168.3.173:443 -> 192.168.201.129:7891`（https://pocket4）
+  - `netsh portproxy 0.0.0.0:7891 / 0.0.0.0:8080 -> 192.168.201.129:7891`（覆盖所有网卡）
+  - Node 反代：`192.168.3.173:443/8443` 与 `26.36.61.205:443/8443`（Radmin VPN）-> 虚拟机
   - hosts：`192.168.3.173 pocket4 / pocket4-MCL.com / www.pocket4-MCL.com`
+- 校园网访问：见 [docs/campus-access.md](docs/campus-access.md)
+  - 同网段直接 `http://<主机IP>:7891`（备用 `:8080`，HTTPS `:8443`）
+  - 域名 `https://pocket4` 需在客户端跑一次 `http://<IP>:8080/mcl-client-setup.bat`（管理员）
+  - 跨网络/隔离可用 Radmin VPN：`http://26.36.61.205:7891`
 - 证书：自签 `host/cert/mcl.pfx`（SAN：pocket4 等三个名字），已导入本机 `LocalMachine\Root`
 - **桌面一键启动**：Win10 桌面 `一键启动服务器.bat`（调用 `C:\MCLServer\start_server.ps1`）；
   已停止时启动服务器、运行中则提示已在运行，并顺带触发看护任务；日志 `C:\MCLServer\logs\start.log`

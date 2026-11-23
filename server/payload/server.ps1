@@ -131,6 +131,23 @@ function Handle-Request($client) {
       } else { Send-Text $stream 500 'text/plain; charset=utf-8' 'missing index.html' @{} }
       return
     }
+    if ($path -eq '/mcl-ca.cer') {
+      $cer = Join-Path $WebDir 'mcl-ca.cer'
+      if (Test-Path $cer) {
+        Send-Response $stream 200 'application/x-x509-ca-cert' ([System.IO.File]::ReadAllBytes($cer)) @{ 'Content-Disposition' = 'attachment; filename="mcl-ca.cer"' }
+      } else { Send-Text $stream 404 'text/plain; charset=utf-8' 'cert not found' @{} }
+      return
+    }
+    if ($path -eq '/mcl-client-setup.bat' -or $path -eq '/mcl-client-setup.ps1') {
+      # 校园网一键配置脚本（给其它电脑下载）
+      $name = [System.IO.Path]::GetFileName($path)
+      $f = Join-Path $WebDir $name
+      if (Test-Path $f) {
+        $bytes = [System.IO.File]::ReadAllBytes($f)
+        Send-Response $stream 200 'application/octet-stream' $bytes @{ 'Content-Disposition' = ('attachment; filename="' + $name + '"') }
+      } else { Send-Text $stream 404 'text/plain; charset=utf-8' 'not found' @{} }
+      return
+    }
     if ($path -eq '/api/status') {
       $v = Read-Version
       $exe = Join-Path $DlDir $v.file

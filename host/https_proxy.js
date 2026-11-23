@@ -1,21 +1,21 @@
 // ---------------------------------------------------------------------------
-//  https_proxy.js  -  MCL 反向代理
-//    https://pocket4-MCL.com      (443)  -> Win10 虚拟机 MCLServer (默认 192.168.201.129:7891)
-//    http://192.168.3.173:7891    (7891) -> 同一后端（局域网回退地址）
-//    http://<host>:80             -> 301 跳转到 https
-//  使用自签证书 (host/cert/mcl.pfx)；只监听指定网卡，避免和占用 0.0.0.0:443 的其它程序冲突。
+//  https_proxy.js  -  MCL 反向代理 / 端口转发
+//    443 / 8443 (TLS)  : https://pocket4、https://<主机IP>、https://26.36.61.205 等
+//    7891 / 8080 (HTTP): 由系统 netsh portproxy 转发到虚拟机（见 tools/server_watchdog.ps1）
+//  监听本机所有局域网地址（WLAN / 校园网 / Radmin VPN 等），虚拟机 IP 变化会自动跟随。
 // ---------------------------------------------------------------------------
 const https = require('https');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
 const BASE = 'E:/MCL/host';
 const PFX = path.join(BASE, 'cert', 'mcl.pfx');
 const PFX_PASS = process.env.MCL_CERT_PASS || 'MCLCert2026!';
+const LOG = path.join(BASE, 'proxy.log');
 
-// 后端地址: 优先 host/target.txt (看护任务会写入), 否则用环境变量/默认值
-// 每次请求都会重新读取(带 5 秒缓存), 虚拟机 IP 变化后无需重启代理
+// 后端地址: 优先 host/target.txt (看护任务写入), 每次请求重读(5 秒缓存)
 let _targetCache = null;
 let _targetCacheAt = 0;
 function readTarget() {
@@ -37,22 +37,24 @@ function readTarget() {
   _targetCacheAt = now;
   return t;
 }
-// 默认监听本机局域网地址（0.0.0.0:443 常被 Steam++ 等程序占用）
-function detectBind() {
-  if (process.env.MCL_BIND) return process.env.MCL_BIND;
-  const os = require('os');
+
+// 需要监听的地址: 本机所有非虚拟网卡的 IPv4（含 Radmin VPN，便于跨网络访问）
+function detectBinds() {
+  if (process.env.MCL_BIND) return [process.env.MCL_BIND];
+  const skip = /vmnet|vmware|vethernet|wsl|loopback|teredo|isatap|本地连接\*|以太网 2/i;
   const nets = os.networkInterfaces();
-  const skip = /vmnet|vmware|radmin|vethernet|wsl|loopback|本地连接\*|以太网 2/i;
+  const out = [];
   for (const name of Object.keys(nets)) {
     if (skip.test(name)) continue;
     for (const ni of nets[name] || []) {
-      if (ni.family === 'IPv4' && !ni.internal) return ni.address;
+      if (ni.family === 'IPv4' && !ni.internal && !ni.address.startsWith('169.254.')) {
+        if (!out.includes(ni.address)) out.push(ni.address);
+      }
     }
   }
-  return '127.0.0.1';
+  if (!out.length) out.push('127.0.0.1');
+  return out;
 }
-const BIND = detectBind();
-const LOG = path.join(BASE, 'proxy.log');
 
 function log(msg) {
   const line = '[' + new Date().toISOString() + '] ' + msg + '\n';
@@ -61,6 +63,19 @@ function log(msg) {
 }
 
 function forward(req, res) {
+  // 客户端证书下载（校园网机器一键信任用）
+  if (req.url === '/mcl-ca.cer') {
+    try {
+      const cer = fs.readFileSync(path.join(BASE, 'cert', 'mcl.cer'));
+      res.writeHead(200, {
+        'content-type': 'application/x-x509-ca-cert',
+        'content-disposition': 'attachment; filename="mcl-ca.cer"',
+        'access-control-allow-origin': '*',
+      });
+      res.end(cer);
+      return;
+    } catch (e) {}
+  }
   const target = readTarget();
   const headers = Object.assign({}, req.headers);
   headers['host'] = target.host + ':' + target.port;
@@ -95,24 +110,21 @@ try {
   process.exit(1);
 }
 
-const server = https.createServer(tls, forward);
-server.on('error', (e) => { log('https listen error: ' + BIND + ':443 ' + e.message); });
-server.listen(443, BIND, () => {
-  const t = readTarget();
-  log('https://pocket4:443 (' + BIND + ') -> http://' + t.host + ':' + t.port);
-});
+const BINDS = detectBinds();
+log('binds = ' + BINDS.join(', '));
 
-const lan = http.createServer(forward);
-lan.on('error', (e) => { log('lan listen error: ' + BIND + ':7891 ' + e.message); });
-lan.listen(7891, BIND, () => {
-  const t = readTarget();
-  log('http://' + BIND + ':7891 -> http://' + t.host + ':' + t.port + ' (LAN fallback)');
-});
-
-const redir = http.createServer((req, res) => {
-  const host = (req.headers.host || 'pocket4').split(':')[0];
-  res.writeHead(301, { location: 'https://' + host + req.url });
-  res.end();
-});
-redir.on('error', (e) => { log('http:80 listen error (ignored): ' + e.message); });
-redir.listen(80, BIND, () => { log('http://' + BIND + ':80 -> https redirect'); });
+let okCount = 0;
+for (const ip of BINDS) {
+  // HTTPS: 443 + 8443（443 被 Steam++ 占用时，8443 可作校园网备用端口）
+  for (const port of [443, 8443]) {
+    const s = https.createServer(tls, forward);
+    s.on('error', (e) => { log('https ' + port + '@' + ip + ' error: ' + (e.code || e.message)); });
+    s.listen(port, ip, () => {
+      okCount++;
+      const t = readTarget();
+      log('https ' + port + '@' + ip + ' -> http://' + t.host + ':' + t.port);
+    });
+  }
+  // 7891 / 8080 由系统 netsh portproxy 转发（0.0.0.0，覆盖所有网卡），这里不再重复监听
+}
+log('listeners started: ' + okCount);

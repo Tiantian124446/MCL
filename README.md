@@ -55,11 +55,20 @@ g++ -std=c++17 -O2 -municode -mwindows `
 `server/payload/` 是部署到 Windows 10 虚拟机的完整包：
 
 - `server.ps1`：基于 TcpListener 的轻量 HTTP 服务（端口 7891）
-- `web/index.html`：深色落地页，含「下载最新版本」「BUG反馈」
+- `web/index.html`：深色落地页，含「下载最新版本」「BUG反馈」「校园网配置」
 - `bootstrap.ps1`：在 guest 内提权运行，下载包、复制文件、加防火墙、建计划任务
 - `watchdog.ps1`：每 5 分钟检查服务并重启
 - 反馈保存为 `C:\MCLServer\feedback\BUG反馈_*.txt`，并 POST 到主机 `:8098/feedback`
 - 管理页：`/admin` → 输入 `C:\MCLServer\admin_token.txt` 中的 token 查看反馈记录
+
+## 校园网访问
+
+主机端口转发（`netsh portproxy`，监听 0.0.0.0）与反向代理（443/8443）把虚拟机服务器发布到本机所有网卡：
+
+- 同一校园网：`http://<主机IP>:7891`，备用 `:8080`，HTTPS `:8443`
+- 域名 `https://pocket4`：在客户端运行 `http://<IP>:8080/mcl-client-setup.bat`（管理员）一次
+- 跨网络/客户端隔离：Radmin VPN `http://26.36.61.205:7891`
+- 详细说明与排错：[docs/campus-access.md](docs/campus-access.md)
 
 ## 反馈 → 修复 → 重新发布
 

@@ -1,9 +1,10 @@
-﻿# server_watchdog.ps1 — MCL 服务器自愈（每 2 分钟运行）
+﻿# server_watchdog.ps1 — MCL 服务器自愈 + 端口转发（每 2 分钟运行）
 #   1) 虚拟机没运行就启动（nogui）
 #   2) 读取虚拟机 IP，写入 host\target.txt
-#   3) 对齐 hosts（pocket4 / pocket4-MCL.com）与 7891 端口转发
-#   4) 反向代理进程没了就重启
-#   只改 hosts / portproxy / 定时任务 / 进程，不修改任何网卡配置。
+#   3) 对齐 hosts（pocket4 / pocket4-MCL.com）与端口转发（0.0.0.0:7891 / 0.0.0.0:8080）
+#   4) 放行防火墙 443 / 8443 / 7891 / 8080（所有配置文件）
+#   5) 反向代理进程没了、或 443 没监听在当前 IP 上 → 重启
+#   只改 hosts / portproxy / 防火墙 / 进程，不修改任何网卡配置。
 $ErrorActionPreference = 'Continue'
 $root = 'E:\MCL'
 $vmrun = 'C:\Program Files (x86)\VMware\VMware Workstation\vmrun.exe'
@@ -40,7 +41,7 @@ if ($oldTarget -ne "$ip`:7891") {
     Log "guest target -> $ip`:7891"
 }
 
-# ---- 3) 主机 IP / hosts / portproxy ----
+# ---- 3) 主机 IP / hosts ----
 $hostIp = (Get-NetIPAddress -AddressFamily IPv4 -InterfaceAlias 'WLAN' -ErrorAction SilentlyContinue |
            Select-Object -First 1).IPAddress
 if ($hostIp) {
@@ -62,43 +63,47 @@ if ($hostIp) {
             Log "hosts updated -> $hostIp"
         } catch { Log "hosts update failed: $($_.Exception.Message)" }
     }
+}
 
-    # portproxy（0.0.0.0;7891 由 iphlpsvc 监听）
-    $rule = netsh interface portproxy show v4tov4 | Select-String -SimpleMatch "$hostIp" | Select-String -SimpleMatch '7891'
-    $ruleOk = $false
-    if ($rule) {
-        $ruleText = ($rule | Out-String)
-        if ($ruleText -match [regex]::Escape("$hostIp") + '\s+7891\s+' + [regex]::Escape("$ip")) { $ruleOk = $true }
+# ---- 4) 端口转发（0.0.0.0 覆盖所有网卡：WLAN / 校园网 / Radmin）----
+function Ensure-PortProxy([int]$listenPort, [string]$targetIp, [int]$targetPort) {
+    $show = ''
+    try { $show = (netsh interface portproxy show v4tov4 | Out-String) } catch {}
+    $ruleOk = $show -match ('0\.0\.0\.0\s+' + $listenPort + '\s+' + [regex]::Escape($targetIp) + '\s+' + $targetPort)
+    $listening = Get-NetTCPConnection -State Listen -LocalPort $listenPort -ErrorAction SilentlyContinue
+    if (-not $ruleOk -or -not $listening) {
+        netsh interface portproxy delete v4tov4 listenaddress=0.0.0.0 listenport=$listenPort 2>$null | Out-Null
+        netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=$listenPort connectaddress=$targetIp connectport=$targetPort | Out-Null
+        Log "portproxy 0.0.0.0:$listenPort -> $targetIp`:$targetPort"
     }
-    if (-not $ruleOk) {
-        netsh interface portproxy delete v4tov4 listenaddress=$hostIp listenport=7891 2>$null | Out-Null
-        netsh interface portproxy add v4tov4 listenaddress=$hostIp listenport=7891 connectaddress=$ip connectport=7891 | Out-Null
-        Log "portproxy -> $ip`:7891"
-    }
-    # 监听丢失时重新注册一次
-    $listening = Get-NetTCPConnection -State Listen -LocalPort 7891 -ErrorAction SilentlyContinue
-    if (-not $listening) {
-        netsh interface portproxy delete v4tov4 listenaddress=$hostIp listenport=7891 2>$null | Out-Null
-        netsh interface portproxy add v4tov4 listenaddress=$hostIp listenport=7891 connectaddress=$ip connectport=7891 | Out-Null
-        Log 'portproxy listener re-registered'
+}
+Ensure-PortProxy 7891 $ip 7891
+Ensure-PortProxy 8080 $ip 7891
+
+# 防火墙放行（所有配置文件）
+foreach ($port in 443, 8443, 7891, 8080) {
+    $ruleName = "MCL Server $port"
+    $exists = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
+    if (-not $exists) {
+        New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Action Allow -Protocol TCP -LocalPort $port -Profile Any | Out-Null
+        Log "firewall allow tcp/$port"
     }
 }
 
-# ---- 4) 反向代理进程 ----
+# ---- 5) 反向代理进程 ----
 $proxy = $null
 try {
     $proxy = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
              Where-Object { $_.CommandLine -like '*https_proxy.js*' }
 } catch {}
 
-# 代理在跑但 443 没监听在当前主机 IP 上（主机 IP 变了 / 监听丢失）→ 重启
 $listenOk = $false
 try {
     $conns = Get-NetTCPConnection -State Listen -LocalPort 443 -ErrorAction SilentlyContinue
     if ($hostIp) { $listenOk = [bool]($conns | Where-Object { $_.LocalAddress -eq $hostIp }) }
 } catch {}
 if ($proxy -and -not $listenOk) {
-    Log 'proxy listener missing (host ip changed?), restarting'
+    Log 'proxy listener missing (ip changed?), restarting'
     $proxy | ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force } catch {} }
     Start-Sleep -Milliseconds 600
     $proxy = $null
