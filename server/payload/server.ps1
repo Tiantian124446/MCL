@@ -45,11 +45,8 @@ function Read-Version {
 }
 
 function Get-Address {
-  try {
-    $ips = [System.Net.Dns]::GetHostAddresses([System.Net.Dns]::GetHostName()) | Where-Object { $_.AddressFamily -eq 'InterNetwork' -and -not $_.IPAddressToString.StartsWith('127.') }
-    if ($ips) { return ($ips[0].IPAddressToString + ':' + $Port) }
-  } catch {}
-  return ('127.0.0.1:' + $Port)
+  # 对外地址：启动器与官网统一显示 https://pocket4
+  return 'pocket4'
 }
 
 function Send-Bytes($stream, [byte[]]$bytes) {

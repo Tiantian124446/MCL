@@ -44,8 +44,8 @@ static const float SCALE_MIN = 0.60f;
 static const float SCALE_MAX = 4.00f;
 
 // 应用版本与发布服务器（自定义域名优先，域名不可达时回退到局域网地址）
-static const wchar_t* kAppVersion = L"1.28.0";
-static const wchar_t* kServerUrl      = L"https://pocket4-MCL.com";
+static const wchar_t* kAppVersion = L"1.28.1";
+static const wchar_t* kServerUrl      = L"https://pocket4";
 static const wchar_t* kServerFallback = L"http://192.168.3.173:7891";
 
 static std::wstring g_serverBase;

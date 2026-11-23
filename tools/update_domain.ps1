@@ -31,10 +31,11 @@ if (-not (Test-Path "$hosts.bak_mcl")) { Copy-Item $hosts "$hosts.bak_mcl" -Forc
 $lines = [System.IO.File]::ReadAllLines($hosts)
 $out = New-Object System.Collections.Generic.List[string]
 foreach ($l in $lines) {
-    if ($l -match '(?i)pocket4-mcl\.com') { continue }
+    if ($l -match '(?i)pocket4') { continue }
     $out.Add($l)
 }
 $out.Add("# MCL launcher server")
+$out.Add("$hostIp pocket4")
 $out.Add("$hostIp pocket4-MCL.com")
 $out.Add("$hostIp www.pocket4-MCL.com")
 [System.IO.File]::WriteAllLines($hosts, $out, (New-Object System.Text.ASCIIEncoding))
@@ -57,9 +58,9 @@ Start-Sleep -Seconds 2
 
 # 7) 自检
 try {
-    $r = Invoke-WebRequest "https://pocket4-MCL.com/api/status" -UseBasicParsing -TimeoutSec 8
+    $r = Invoke-WebRequest "https://pocket4/api/status" -UseBasicParsing -TimeoutSec 8
     $j = $r.Content | ConvertFrom-Json
-    Write-Host ("OK: https://pocket4-MCL.com -> v{0} ({1})" -f $j.version, $j.address)
+    Write-Host ("OK: https://pocket4 -> v{0} ({1})" -f $j.version, $j.address)
 } catch {
     Write-Host ("WARN: https 自检失败: " + $_.Exception.Message)
 }
